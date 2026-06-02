@@ -8,7 +8,10 @@
                2. NDIS Quality & Safeguards Commission Banning Register
   Registers: Stored as static CSVs in this repo, updated monthly by GitHub Actions.
     aged-care-register.csv  — ACQSC banning orders
-    ndis-register.csv       — NDIS Commission banning orders
+    ndis-register.csv       — NDIS Commission compliance-actions export (all action
+                              types: banning orders, compliance notices, revocations, etc.)
+  Checking: Every row in both files is checked — active and expired/lapsed alike.
+            Matches are flagged by status (active vs expired) and action type.
   Update : Registers are refreshed automatically on the 1st of each month.
            To update immediately, run the "Update Banning Register CSVs" workflow manually.
   Security:
@@ -241,11 +244,13 @@
     .match-card.expired { border-left: 3px solid var(--warn-border); }
     .match-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 8px; gap: 8px; }
     .match-name  { font-weight: 700; font-size: 0.92rem; }
-    .match-pills { display: flex; flex-shrink: 0; gap: 6px; align-items: center; }
-    .score-pill  { flex-shrink: 0; font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 4px; background: #fee2e2; color: var(--danger); }
+    .match-pills { display: flex; flex-shrink: 0; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+    .score-pill  { flex-shrink: 0; font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 4px; background: var(--grey); color: var(--grey-dark); }
     .status-pill { flex-shrink: 0; font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 4px; }
     .status-pill.active  { background: #fee2e2; color: var(--danger); }
     .status-pill.expired { background: #fef3c7; color: #92400e; }
+    .kind-pill   { flex-shrink: 0; font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 4px; background: var(--grey); color: var(--grey-dark); }
+    .kind-pill.ban { background: #fee2e2; color: var(--danger); }
     .match-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 3px 14px; font-size: 0.82rem; width: 100%; }
     .mf { color: var(--grey-dark); }
     .mf span { color: var(--text); font-weight: 500; }
@@ -387,7 +392,7 @@ const NDIS_CSV  = './ndis-register.csv';
 // ─── Application state ────────────────────────────────────────────────────────
 let employees    = [];   // { location, firstName, lastName, fullName }
 let acqscRows    = [];   // normalised ACQSC register entries (active + expired)
-let ndisRows     = [];   // normalised NDIS banning orders — individuals & orgs (active + expired)
+let ndisRows     = [];   // normalised NDIS compliance actions — all types (active + expired)
 let results      = [];   // { employee, acqscMatches, ndisMatches }
 let runAt        = null;
 let acqscFetchAt = null;
@@ -604,7 +609,8 @@ async function fetchNdis() {
   const text = await resp.text();
   const { data } = parseCsv(text, 'NDIS');
   return {
-    rows:      data.filter(isBanningOrder).map(normaliseNdisRow).filter(r => r.name),
+    // Every NDIS compliance action is checked — banning orders and all other action types.
+    rows:      data.map(normaliseNdisRow).filter(r => r.name),
     fetchedAt: new Date()
   };
 }
@@ -643,32 +649,28 @@ function normaliseAcqscRow(row) {
     reason:    v('Description'),
     endDate:   endDate,
     active:    active,
+    isBan:     true,   // the ACQSC register consists entirely of banning orders
     register:  'acqsc'
   };
 }
 
-// ─── NDIS register normalisation & filtering ─────────────────────────────────
-
-function isBanningOrder(row) {
-  // Every banning order is kept — individuals and organisations alike. Expired
-  // orders are retained too and flagged separately; nothing is excluded.
-  const type = (row['Type'] || '').toLowerCase();
-  return type.includes('banning order');
-}
+// ─── NDIS register normalisation ─────────────────────────────────────────────
 
 function normaliseNdisRow(row) {
   const v = k => (row[k] || '').trim();
   const endDate = v('Date no longer in force');
+  const type    = v('Type');
   return {
     name:      v('Name'),
     suburb:    v('City'),
     state:     v('State'),
     postcode:  v('Postcode'),
     orderDate: v('Date effective from'),
-    orderType: v('Type'),
+    orderType: type,
     reason:    v('Relevant information'),
     endDate:   endDate,
     active:    !isExpiredDate(endDate),
+    isBan:     /banning order/i.test(type),
     register:  'ndis'
   };
 }
@@ -766,8 +768,8 @@ function renderResults() {
   auditBar.innerHTML =
     `<strong>Check run:</strong> ${dtStr(runAt)} &nbsp;&bull;&nbsp; ` +
     `<strong>Employees checked:</strong> ${employees.length} &nbsp;&bull;&nbsp; ` +
-    `<strong>Aged Care register:</strong> ${acqscRows.length} entries &nbsp;&bull;&nbsp; ` +
-    `<strong>NDIS register:</strong> ${ndisRows.length} banning orders`;
+    `<strong>Aged Care register:</strong> ${acqscRows.length} banning orders &nbsp;&bull;&nbsp; ` +
+    `<strong>NDIS register:</strong> ${ndisRows.length} compliance actions`;
 
   // Stats (5 tiles)
   statsGrid.innerHTML = [
@@ -784,7 +786,7 @@ function renderResults() {
   if (activeFlagged.length > 0) {
     flaggedHtml +=
       `<div class="sec-head">
-        <div class="sec-title">Flagged — Active Banning Orders</div>
+        <div class="sec-title">Flagged — Active Compliance Actions</div>
         <span class="badge badge-danger">${activeFlagged.length} active</span>
       </div>` +
       activeFlagged.map(r => renderFlagged(r, 'active')).join('');
@@ -793,11 +795,11 @@ function renderResults() {
   if (expiredFlagged.length > 0) {
     flaggedHtml +=
       `<div class="sec-head" style="margin-top:24px">
-        <div class="sec-title">Flagged — Expired Orders (lower priority)</div>
+        <div class="sec-title">Flagged — Expired / Lapsed Actions (lower priority)</div>
         <span class="badge badge-warn">${expiredFlagged.length} expired</span>
       </div>
       <p style="font-size:.82rem;color:var(--grey-dark);margin-bottom:12px">
-        These names match banning orders that are no longer in force. Review for context, but they are not active bans.
+        These names match compliance actions that are no longer in force. Review for context — check each match's action type below.
       </p>` +
       expiredFlagged.map(r => renderFlagged(r, 'expired')).join('');
   }
@@ -806,7 +808,7 @@ function renderResults() {
     flaggedHtml =
       `<div class="sec-head">
         <div class="sec-title" style="color:var(--success)">
-          ✓ No employees matched either Banning Register
+          ✓ No employees matched either register
         </div>
       </div>`;
   }
@@ -881,6 +883,12 @@ function renderFlagged(r, severity) {
   </details>`;
 }
 
+// Human-readable action type, e.g. "ER - Compliance notice" → "Compliance notice".
+function actionTypeLabel(e) {
+  if (e.register === 'acqsc') return 'Banning order';
+  return (e.orderType || 'Compliance action').replace(/^ER\s*-\s*/i, '').trim();
+}
+
 function renderMatchCard(m) {
   const e = m.entry;
   const scoreLabel =
@@ -888,21 +896,22 @@ function renderMatchCard(m) {
     m.score >= 0.75 ? 'Initial name match' : 'Name variant';
   const statusCls   = e.active ? 'active' : 'expired';
   const statusLabel = e.active ? 'Active' : 'Expired';
+  const kindLabel   = actionTypeLabel(e);
 
   const fields = [
     e.suburb    && `<div class="mf">Suburb: <span>${esc(e.suburb)}</span></div>`,
     e.state     && `<div class="mf">State: <span>${esc(e.state)}</span></div>`,
     e.postcode  && `<div class="mf">Postcode: <span>${esc(e.postcode)}</span></div>`,
-    e.orderDate && `<div class="mf">Order date: <span>${esc(e.orderDate)}</span></div>`,
-    e.orderType && `<div class="mf">Order type: <span>${esc(e.orderType)}</span></div>`,
-    e.endDate   && `<div class="mf">Order ends: <span>${esc(e.endDate)}</span></div>`,
-    e.reason    && `<div class="mf mf-full">Reason: <span>${esc(e.reason)}</span></div>`
+    e.orderDate && `<div class="mf">Effective: <span>${esc(e.orderDate)}</span></div>`,
+    e.endDate   && `<div class="mf">Ends: <span>${esc(e.endDate)}</span></div>`,
+    e.reason    && `<div class="mf mf-full">Details: <span>${esc(e.reason)}</span></div>`
   ].filter(Boolean).join('');
 
   return `<div class="match-card${e.active ? '' : ' expired'}">
     <div class="match-header">
       <div class="match-name">${esc(e.name)}</div>
       <div class="match-pills">
+        <span class="kind-pill${e.isBan ? ' ban' : ''}">${esc(kindLabel)}</span>
         <span class="status-pill ${statusCls}">${statusLabel}</span>
         <span class="score-pill">${scoreLabel}</span>
       </div>
@@ -936,10 +945,10 @@ emailBtn.addEventListener('click', () => {
       const e   = m.entry;
       const loc = [e.suburb, e.state].filter(x => x && x.trim()).join(', ');
       s += `   Matched name: ${e.name}\n`;
+      s += `   Action type:  ${actionTypeLabel(e)}\n`;
       s += `   Status:       ${e.active ? 'Active (in force)' : 'Expired (no longer in force)'}\n`;
       s += `   Location:     ${loc}\n`;
-      s += `   Order type:   ${e.orderType || ''}\n`;
-      s += `   Order ends:   ${fmtOrderEnd(e.endDate)}\n`;
+      s += `   Action ends:  ${fmtOrderEnd(e.endDate)}\n`;
     });
     return s + '\n';
   };
@@ -954,9 +963,9 @@ emailBtn.addEventListener('click', () => {
 
   body += 'RESULT SUMMARY\n';
   body += HR_SHORT + '\n';
-  body += `⚠ Active banning orders:     ${activeFlagged.length}\n`;
-  body += `△ Expired orders (low prio): ${expiredFlagged.length}\n`;
-  body += `✓ No match found:            ${clear.length}\n\n`;
+  body += `⚠ Active compliance actions:    ${activeFlagged.length}\n`;
+  body += `△ Expired/lapsed (low prio):    ${expiredFlagged.length}\n`;
+  body += `✓ No match found:               ${clear.length}\n\n`;
 
   body += HR_LONG + '\n';
   body += 'FLAGGED EMPLOYEES — REVIEW REQUIRED\n';
@@ -966,12 +975,12 @@ emailBtn.addEventListener('click', () => {
     body += '✓ No matches found across all employees checked.\n\n';
   } else {
     if (activeFlagged.length > 0) {
-      body += 'ACTIVE BANNING ORDERS\n';
+      body += 'ACTIVE COMPLIANCE ACTIONS\n';
       body += HR_SHORT + '\n\n';
       activeFlagged.forEach((r, i) => { body += flaggedBlock(r, i); });
     }
     if (expiredFlagged.length > 0) {
-      body += 'EXPIRED ORDERS (LOWER PRIORITY)\n';
+      body += 'EXPIRED / LAPSED ACTIONS (LOWER PRIORITY)\n';
       body += HR_SHORT + '\n';
       body += 'No longer in force — review for context only.\n\n';
       expiredFlagged.forEach((r, i) => { body += flaggedBlock(r, i); });
@@ -1007,25 +1016,30 @@ downloadBtn.addEventListener('click', () => {
     'First Name',
     'Last Name',
     'Next check required date',
-    'Banned/Not Banned',
-    'Reason if banned'
+    'Compliance Result',
+    'Reason / details if flagged'
   ];
 
   const rows = [headers];
 
   for (const r of results) {
-    const emp       = r.employee;
-    const isFlagged = hasAnyMatch(r);
-    const active    = isFlagged && hasActiveMatch(r);
-    const status    = !isFlagged ? 'Not Banned'
-                    : active     ? 'Banned'
-                                 : 'Banned (expired order)';
-    const reason    = matchesOf(r)
+    const emp    = r.employee;
+    const ms     = matchesOf(r);
+    const bans   = ms.filter(m => m.entry.isBan);
+    const others = ms.filter(m => !m.entry.isBan);
+    // Banning orders are the most serious signal, so they set the headline result.
+    const status =
+      bans.some(m => m.entry.active)   ? 'Banned'                      :
+      bans.length > 0                  ? 'Banned (expired order)'      :
+      others.some(m => m.entry.active) ? 'Compliance action (active)'  :
+      others.length > 0                ? 'Compliance action (expired)' :
+                                         'Not Banned';
+    const reason = ms
       .filter(m => m.entry.reason)
       .map(m => {
         const reg = m.entry.register === 'acqsc' ? 'Aged Care' : 'NDIS';
         const tag = m.entry.active ? '' : ' (expired)';
-        return `${reg}${tag}: ${m.entry.reason}`;
+        return `${reg} — ${actionTypeLabel(m.entry)}${tag}: ${m.entry.reason}`;
       })
       .join('; ');
 

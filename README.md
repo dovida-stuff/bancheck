@@ -6,11 +6,14 @@ A browser-based compliance tool for Dovida's People & Culture team. Checks emplo
 
 - Upload a staff list (CSV or Excel) with `Location`, `First Name`, and `Last Name` columns
 - The tool checks each name against:
-  - **ACQSC Aged Care Banning Register** — issued under the Aged Care Act
-  - **NDIS Commission Banning Register** — all banning orders (individuals and organisations)
-- Both registers are checked for **active and expired** banning orders. Matches against
-  orders still in force are flagged as **Active** (urgent); matches against orders no longer
-  in force are flagged separately as **Expired** (lower priority, for context only).
+  - **ACQSC Aged Care Banning Register** — banning orders issued under the Aged Care Act
+  - **NDIS Commission compliance-actions export** — **every** action type: banning orders,
+    compliance notices, registration revocations, refusals, suspensions and enforceable
+    undertakings, for both individuals and organisations
+- **Every row in both files is checked** — nothing is filtered out. Matches against actions
+  still in force are flagged as **Active** (urgent); matches against actions no longer in
+  force are flagged separately as **Expired** (lower priority, for context only). Each match
+  shows its specific **action type**, and actual banning orders are highlighted as such.
 - Produces a colour-coded results page showing flagged employees and match details
 - Flagged employees can be exported as CSV or emailed as a report
 - All processing happens in the browser — no employee data is transmitted to any server
@@ -31,7 +34,7 @@ The register CSVs are stored in this repository and served as static files by Gi
 | File | Source |
 |------|--------|
 | `aged-care-register.csv` | ACQSC Aged Care Banning Register |
-| `ndis-register.csv` | NDIS Commission Banning Register |
+| `ndis-register.csv` | NDIS Commission compliance-actions export (all action types) |
 
 A GitHub Actions workflow automatically refreshes both files on the **1st of every month at 11am AEST**.
 
@@ -66,15 +69,20 @@ Names are compared using normalised fuzzy matching:
 
 All matches ≥ 0.65 are flagged for manual review. **Flagged results must be verified before any employment action is taken.**
 
-## Active vs expired orders
+## Active vs expired actions
 
-Every match is classified by the status of the banning order it matched:
+Every match is classified by the status of the action it matched:
 
 | Status | Meaning | How it's flagged |
 |--------|---------|------------------|
-| **Active** | Order is still in force (ACQSC `Status` is in force and any `Ban End Date` is in the future; NDIS `Date no longer in force` is empty or in the future) | High priority — red **Active Flags** section |
-| **Expired** | Order is no longer in force (ACQSC marked "No longer in force" or end date passed; NDIS end date in the past) | Lower priority — amber **Expired Flags** section, for context only |
+| **Active** | Action is still in force (ACQSC `Status` is in force and any `Ban End Date` is in the future; NDIS `Date no longer in force` is empty or in the future) | High priority — red **Active Flags** section |
+| **Expired** | Action is no longer in force (ACQSC marked "No longer in force" or end date passed; NDIS end date in the past) | Lower priority — amber **Expired Flags** section, for context only |
 
 An employee with any active match is listed under Active Flags; one whose matches are all
-expired is listed under Expired Flags. In the CSV export the *Banned/Not Banned* column reads
-`Banned`, `Banned (expired order)`, or `Not Banned`, and expired reasons are tagged `(expired)`.
+expired is listed under Expired Flags. Each match also shows its **action type** (e.g.
+Banning order, Compliance notice), with banning orders highlighted as the most serious signal.
+
+In the CSV export the *Compliance Result* column reads `Banned`, `Banned (expired order)`,
+`Compliance action (active)`, `Compliance action (expired)`, or `Not Banned` — banning orders
+set a "Banned" result; other action types read "Compliance action". The *Reason / details if
+flagged* column prefixes each entry with its register and action type, tagging expired ones.
