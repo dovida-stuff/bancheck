@@ -384,13 +384,10 @@
 const ACQSC_CSV = './aged-care-register.csv';
 const NDIS_CSV  = './ndis-register.csv';
 
-// Org-name patterns to exclude from NDIS results (companies, not individuals)
-const ORG_RE = /pty\.?\s*ltd|(?:^|\s)pty(?:\s|$)|t\/a|\btrust\b|\binc\.?\b|\bltd\.?\b/i;
-
 // ─── Application state ────────────────────────────────────────────────────────
 let employees    = [];   // { location, firstName, lastName, fullName }
 let acqscRows    = [];   // normalised ACQSC register entries (active + expired)
-let ndisRows     = [];   // normalised individual NDIS banning orders (active + expired)
+let ndisRows     = [];   // normalised NDIS banning orders — individuals & orgs (active + expired)
 let results      = [];   // { employee, acqscMatches, ndisMatches }
 let runAt        = null;
 let acqscFetchAt = null;
@@ -607,7 +604,7 @@ async function fetchNdis() {
   const text = await resp.text();
   const { data } = parseCsv(text, 'NDIS');
   return {
-    rows:      data.filter(isIndividualBanningOrder).map(normaliseNdisRow).filter(r => r.name),
+    rows:      data.filter(isBanningOrder).map(normaliseNdisRow).filter(r => r.name),
     fetchedAt: new Date()
   };
 }
@@ -652,17 +649,11 @@ function normaliseAcqscRow(row) {
 
 // ─── NDIS register normalisation & filtering ─────────────────────────────────
 
-function isIndividualBanningOrder(row) {
-  // Only banning orders
+function isBanningOrder(row) {
+  // Every banning order is kept — individuals and organisations alike. Expired
+  // orders are retained too and flagged separately; nothing is excluded.
   const type = (row['Type'] || '').toLowerCase();
-  if (!type.includes('banning order')) return false;
-
-  // Exclude obvious organisations
-  const name = row['Name'] || '';
-  if (ORG_RE.test(name)) return false;
-
-  // Both active and expired orders are kept; expiry is flagged separately.
-  return true;
+  return type.includes('banning order');
 }
 
 function normaliseNdisRow(row) {
@@ -776,7 +767,7 @@ function renderResults() {
     `<strong>Check run:</strong> ${dtStr(runAt)} &nbsp;&bull;&nbsp; ` +
     `<strong>Employees checked:</strong> ${employees.length} &nbsp;&bull;&nbsp; ` +
     `<strong>Aged Care register:</strong> ${acqscRows.length} entries &nbsp;&bull;&nbsp; ` +
-    `<strong>NDIS register:</strong> ${ndisRows.length} individual banning orders`;
+    `<strong>NDIS register:</strong> ${ndisRows.length} banning orders`;
 
   // Stats (5 tiles)
   statsGrid.innerHTML = [
