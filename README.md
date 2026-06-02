@@ -7,7 +7,10 @@ A browser-based compliance tool for Dovida's People & Culture team. Checks emplo
 - Upload a staff list (CSV or Excel) with `Location`, `First Name`, and `Last Name` columns
 - The tool checks each name against:
   - **ACQSC Aged Care Banning Register** — issued under the Aged Care Act
-  - **NDIS Commission Banning Register** — active individual banning orders only
+  - **NDIS Commission Banning Register** — all individual banning orders
+- Both registers are checked for **active and expired** banning orders. Matches against
+  orders still in force are flagged as **Active** (urgent); matches against orders no longer
+  in force are flagged separately as **Expired** (lower priority, for context only).
 - Produces a colour-coded results page showing flagged employees and match details
 - Flagged employees can be exported as CSV or emailed as a report
 - All processing happens in the browser — no employee data is transmitted to any server
@@ -62,3 +65,16 @@ Names are compared using normalised fuzzy matching:
 | 0.65 — Name variant | Last name matches; employee first name matches a middle name on the register |
 
 All matches ≥ 0.65 are flagged for manual review. **Flagged results must be verified before any employment action is taken.**
+
+## Active vs expired orders
+
+Every match is classified by the status of the banning order it matched:
+
+| Status | Meaning | How it's flagged |
+|--------|---------|------------------|
+| **Active** | Order is still in force (ACQSC `Status` is in force and any `Ban End Date` is in the future; NDIS `Date no longer in force` is empty or in the future) | High priority — red **Active Flags** section |
+| **Expired** | Order is no longer in force (ACQSC marked "No longer in force" or end date passed; NDIS end date in the past) | Lower priority — amber **Expired Flags** section, for context only |
+
+An employee with any active match is listed under Active Flags; one whose matches are all
+expired is listed under Expired Flags. In the CSV export the *Banned/Not Banned* column reads
+`Banned`, `Banned (expired order)`, or `Not Banned`, and expired reasons are tagged `(expired)`.

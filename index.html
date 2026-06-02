@@ -172,6 +172,7 @@
     .stat { background: var(--grey); border-radius: var(--radius); padding: 14px 8px; text-align: center; }
     .stat-num { font-size: 1.8rem; font-weight: 800; color: var(--purple); line-height: 1; }
     .stat-num.danger { color: var(--danger); }
+    .stat-num.warn   { color: var(--warn-border); }
     .stat-num.ok     { color: var(--success); }
     .stat-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.4px; color: var(--grey-dark); margin-top: 4px; }
 
@@ -180,6 +181,7 @@
     .sec-title { font-size: 0.95rem; font-weight: 700; }
     .badge { display: inline-block; padding: 2px 10px; border-radius: 100px; font-size: 0.75rem; font-weight: 700; }
     .badge-danger  { background: #fee2e2; color: var(--danger); }
+    .badge-warn    { background: #fef3c7; color: #92400e; }
     .badge-ok      { background: #dcfce7; color: var(--success); }
     .badge-both    { background: #fef3c7; color: #92400e; }
     .badge-acqsc   { background: #ede9fe; color: #5b21b6; }
@@ -223,6 +225,11 @@
     .flagged-card[open] .toggle-text::before { content: 'Hide details ▴'; }
     .flagged-body { padding: 0 20px 18px; }
 
+    /* Expired (lower-priority) flagged cards use the amber/warning palette */
+    .flagged-card.expired { background: var(--warn-bg); border-color: #fcd34d; border-left-color: var(--warn-border); }
+    .flagged-card.expired .emp-name { color: #92400e; }
+    .flagged-card.expired .toggle-text { color: #92400e; }
+
     .register-section { margin-bottom: 10px; width: 100%; }
     .register-section:last-child { margin-bottom: 0; }
     .register-heading { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px; padding: 2px 8px; border-radius: 4px; display: inline-block; }
@@ -231,9 +238,14 @@
 
     .match-card { background: var(--white); border: 1px solid var(--grey-mid); border-radius: 6px; padding: 12px 14px; margin-bottom: 8px; width: 100%; }
     .match-card:last-child { margin-bottom: 0; }
+    .match-card.expired { border-left: 3px solid var(--warn-border); }
     .match-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 8px; gap: 8px; }
     .match-name  { font-weight: 700; font-size: 0.92rem; }
+    .match-pills { display: flex; flex-shrink: 0; gap: 6px; align-items: center; }
     .score-pill  { flex-shrink: 0; font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 4px; background: #fee2e2; color: var(--danger); }
+    .status-pill { flex-shrink: 0; font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 4px; }
+    .status-pill.active  { background: #fee2e2; color: var(--danger); }
+    .status-pill.expired { background: #fef3c7; color: #92400e; }
     .match-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 3px 14px; font-size: 0.82rem; width: 100%; }
     .mf { color: var(--grey-dark); }
     .mf span { color: var(--text); font-weight: 500; }
@@ -377,8 +389,8 @@ const ORG_RE = /pty\.?\s*ltd|(?:^|\s)pty(?:\s|$)|t\/a|\btrust\b|\binc\.?\b|\bltd
 
 // ─── Application state ────────────────────────────────────────────────────────
 let employees    = [];   // { location, firstName, lastName, fullName }
-let acqscRows    = [];   // normalised ACQSC register entries
-let ndisRows     = [];   // normalised active individual NDIS entries
+let acqscRows    = [];   // normalised ACQSC register entries (active + expired)
+let ndisRows     = [];   // normalised individual NDIS banning orders (active + expired)
 let results      = [];   // { employee, acqscMatches, ndisMatches }
 let runAt        = null;
 let acqscFetchAt = null;
@@ -595,7 +607,7 @@ async function fetchNdis() {
   const text = await resp.text();
   const { data } = parseCsv(text, 'NDIS');
   return {
-    rows:      data.filter(isActiveNdisRow).map(normaliseNdisRow).filter(r => r.name),
+    rows:      data.filter(isIndividualBanningOrder).map(normaliseNdisRow).filter(r => r.name),
     fetchedAt: new Date()
   };
 }
@@ -620,20 +632,27 @@ function normaliseAcqscRow(row) {
   const middle = v('Middle Name');
   const last   = v('Surname');
   const nameParts = [first, middle, last].filter(Boolean);
+  const status  = v('Status');
+  const endDate = v('Ban End Date');
+  // Active unless the register marks it no longer in force, or its end date has passed.
+  const active  = !/no longer in force/i.test(status) && !isExpiredDate(endDate);
   return {
     name:      nameParts.join(' '),
     suburb:    v('Suburb'),
     state:     v('State'),
     postcode:  v('Postcode'),
     orderDate: v('Ban Start Date'),
-    orderType: v('Status'),
-    reason:    v('Description')
+    orderType: status,
+    reason:    v('Description'),
+    endDate:   endDate,
+    active:    active,
+    register:  'acqsc'
   };
 }
 
 // ─── NDIS register normalisation & filtering ─────────────────────────────────
 
-function isActiveNdisRow(row) {
+function isIndividualBanningOrder(row) {
   // Only banning orders
   const type = (row['Type'] || '').toLowerCase();
   if (!type.includes('banning order')) return false;
@@ -642,20 +661,13 @@ function isActiveNdisRow(row) {
   const name = row['Name'] || '';
   if (ORG_RE.test(name)) return false;
 
-  // Only currently active orders
-  const endDate = (row['Date no longer in force'] || '').trim();
-  if (endDate) {
-    try {
-      const d = new Date(endDate);
-      if (!isNaN(d.getTime()) && d <= new Date()) return false;
-    } catch (_) { /* keep if date unparseable */ }
-  }
-
+  // Both active and expired orders are kept; expiry is flagged separately.
   return true;
 }
 
 function normaliseNdisRow(row) {
   const v = k => (row[k] || '').trim();
+  const endDate = v('Date no longer in force');
   return {
     name:      v('Name'),
     suburb:    v('City'),
@@ -664,8 +676,20 @@ function normaliseNdisRow(row) {
     orderDate: v('Date effective from'),
     orderType: v('Type'),
     reason:    v('Relevant information'),
-    endDate:   v('Date no longer in force')
+    endDate:   endDate,
+    active:    !isExpiredDate(endDate),
+    register:  'ndis'
   };
+}
+
+// True if the date string parses to a moment at or before now.
+// Empty / unparseable end dates are treated as not expired (ongoing).
+function isExpiredDate(raw) {
+  const s = (raw || '').trim();
+  if (!s) return false;
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return false;
+  return d <= new Date();
 }
 
 // ─── Matching logic ───────────────────────────────────────────────────────────
@@ -735,42 +759,68 @@ function matchEmployee(emp, registerRows) {
 
 // ─── Result rendering ─────────────────────────────────────────────────────────
 
+// All matches for an employee, ACQSC first then NDIS.
+function matchesOf(r)      { return [...r.acqscMatches, ...r.ndisMatches]; }
+function hasAnyMatch(r)    { return r.acqscMatches.length > 0 || r.ndisMatches.length > 0; }
+// An employee carries an active flag if any matched order is still in force.
+function hasActiveMatch(r) { return matchesOf(r).some(m => m.entry.active); }
+
 function renderResults() {
-  const flagged = results.filter(r => r.acqscMatches.length > 0 || r.ndisMatches.length > 0);
-  const clear   = results.filter(r => r.acqscMatches.length === 0 && r.ndisMatches.length === 0);
+  // Active flags (≥ 1 in-force order) take priority; expired-only matches are lower urgency.
+  const activeFlagged  = results.filter(r => hasAnyMatch(r) && hasActiveMatch(r));
+  const expiredFlagged = results.filter(r => hasAnyMatch(r) && !hasActiveMatch(r));
+  const clear          = results.filter(r => !hasAnyMatch(r));
 
   // Audit bar
   auditBar.innerHTML =
     `<strong>Check run:</strong> ${dtStr(runAt)} &nbsp;&bull;&nbsp; ` +
     `<strong>Employees checked:</strong> ${employees.length} &nbsp;&bull;&nbsp; ` +
     `<strong>Aged Care register:</strong> ${acqscRows.length} entries &nbsp;&bull;&nbsp; ` +
-    `<strong>NDIS register:</strong> ${ndisRows.length} active individual entries`;
+    `<strong>NDIS register:</strong> ${ndisRows.length} individual banning orders`;
 
   // Stats (5 tiles)
   statsGrid.innerHTML = [
-    makeStat(employees.length,  'Total Checked',    ''),
-    makeStat(flagged.length,    'Flagged',           'danger'),
-    makeStat(clear.length,      'Clear',             'ok'),
-    makeStat(acqscRows.length,  'Aged Care Entries', ''),
-    makeStat(ndisRows.length,   'NDIS Entries',      '')
+    makeStat(employees.length,      'Total Checked',     ''),
+    makeStat(activeFlagged.length,  'Active Flags',      'danger'),
+    makeStat(expiredFlagged.length, 'Expired Flags',     'warn'),
+    makeStat(clear.length,          'Clear',             'ok'),
+    makeStat(acqscRows.length + ndisRows.length, 'Register Entries', '')
   ].join('');
 
-  // Flagged section
-  if (flagged.length > 0) {
-    flaggedSection.innerHTML =
+  // Flagged sections — active (urgent) and expired (lower priority)
+  let flaggedHtml = '';
+
+  if (activeFlagged.length > 0) {
+    flaggedHtml +=
       `<div class="sec-head">
-        <div class="sec-title">Flagged Employees</div>
-        <span class="badge badge-danger">${flagged.length} flagged</span>
+        <div class="sec-title">Flagged — Active Banning Orders</div>
+        <span class="badge badge-danger">${activeFlagged.length} active</span>
       </div>` +
-      flagged.map(renderFlagged).join('');
-  } else {
-    flaggedSection.innerHTML =
+      activeFlagged.map(r => renderFlagged(r, 'active')).join('');
+  }
+
+  if (expiredFlagged.length > 0) {
+    flaggedHtml +=
+      `<div class="sec-head" style="margin-top:24px">
+        <div class="sec-title">Flagged — Expired Orders (lower priority)</div>
+        <span class="badge badge-warn">${expiredFlagged.length} expired</span>
+      </div>
+      <p style="font-size:.82rem;color:var(--grey-dark);margin-bottom:12px">
+        These names match banning orders that are no longer in force. Review for context, but they are not active bans.
+      </p>` +
+      expiredFlagged.map(r => renderFlagged(r, 'expired')).join('');
+  }
+
+  if (flaggedHtml === '') {
+    flaggedHtml =
       `<div class="sec-head">
         <div class="sec-title" style="color:var(--success)">
           ✓ No employees matched either Banning Register
         </div>
       </div>`;
   }
+
+  flaggedSection.innerHTML = flaggedHtml;
 
   // Clear section
   clearSection.innerHTML =
@@ -806,9 +856,10 @@ function registerLabel(r) {
   return                          { text: 'NDIS Register', cls: 'badge-ndis' };
 }
 
-function renderFlagged(r) {
+function renderFlagged(r, severity) {
   const emp   = r.employee;
   const label = registerLabel(r);
+  const icon  = severity === 'expired' ? '◔' : '⚑';
 
   const acqscHtml = r.acqscMatches.length > 0
     ? `<div class="register-section">
@@ -824,10 +875,10 @@ function renderFlagged(r) {
        </div>`
     : '';
 
-  return `<details class="flagged-card">
+  return `<details class="flagged-card${severity === 'expired' ? ' expired' : ''}">
     <summary class="flagged-summary">
       <div class="emp-info">
-        <div class="emp-name">⚑ ${esc(emp.fullName)}</div>
+        <div class="emp-name">${icon} ${esc(emp.fullName)}</div>
         <div class="emp-meta">
           <span class="emp-location">📍 ${esc(emp.location)}</span>
           <span class="badge ${label.cls}">${label.text}</span>
@@ -844,6 +895,8 @@ function renderMatchCard(m) {
   const scoreLabel =
     m.score >= 1.0  ? 'Full name match'    :
     m.score >= 0.75 ? 'Initial name match' : 'Name variant';
+  const statusCls   = e.active ? 'active' : 'expired';
+  const statusLabel = e.active ? 'Active' : 'Expired';
 
   const fields = [
     e.suburb    && `<div class="mf">Suburb: <span>${esc(e.suburb)}</span></div>`,
@@ -855,10 +908,13 @@ function renderMatchCard(m) {
     e.reason    && `<div class="mf mf-full">Reason: <span>${esc(e.reason)}</span></div>`
   ].filter(Boolean).join('');
 
-  return `<div class="match-card">
+  return `<div class="match-card${e.active ? '' : ' expired'}">
     <div class="match-header">
       <div class="match-name">${esc(e.name)}</div>
-      <span class="score-pill">${scoreLabel}</span>
+      <div class="match-pills">
+        <span class="status-pill ${statusCls}">${statusLabel}</span>
+        <span class="score-pill">${scoreLabel}</span>
+      </div>
     </div>
     <div class="match-fields">${fields || '<div class="mf">No additional details available</div>'}</div>
   </div>`;
@@ -866,13 +922,36 @@ function renderMatchCard(m) {
 
 // ─── Email report ─────────────────────────────────────────────────────────────
 emailBtn.addEventListener('click', () => {
-  const flagged = results.filter(r => r.acqscMatches.length > 0 || r.ndisMatches.length > 0);
-  const clear   = results.filter(r => r.acqscMatches.length === 0 && r.ndisMatches.length === 0);
+  const activeFlagged  = results.filter(r => hasAnyMatch(r) && hasActiveMatch(r));
+  const expiredFlagged = results.filter(r => hasAnyMatch(r) && !hasActiveMatch(r));
+  const clear          = results.filter(r => !hasAnyMatch(r));
   const today   = dateLong(runAt);
   const HR_LONG  = '━'.repeat(34);
   const HR_SHORT = '━'.repeat(14);
 
   const subject = `Banning Register Check — ${today}`;
+
+  // One employee block in the flagged listing, annotating each match's status.
+  const flaggedBlock = (r, i) => {
+    const hasA = r.acqscMatches.length > 0;
+    const hasN = r.ndisMatches.length  > 0;
+    const reg  = hasA && hasN ? 'Both' : hasA ? 'Aged Care' : 'NDIS';
+
+    let s = `${i + 1}. ${r.employee.fullName.toUpperCase()}\n`;
+    s += `   Office:       ${r.employee.location}\n`;
+    s += `   Register:     ${reg}\n`;
+
+    matchesOf(r).forEach(m => {
+      const e   = m.entry;
+      const loc = [e.suburb, e.state].filter(x => x && x.trim()).join(', ');
+      s += `   Matched name: ${e.name}\n`;
+      s += `   Status:       ${e.active ? 'Active (in force)' : 'Expired (no longer in force)'}\n`;
+      s += `   Location:     ${loc}\n`;
+      s += `   Order type:   ${e.orderType || ''}\n`;
+      s += `   Order ends:   ${fmtOrderEnd(e.endDate)}\n`;
+    });
+    return s + '\n';
+  };
 
   let body = '';
   body += 'BANNING REGISTER COMPLIANCE CHECK\n';
@@ -884,36 +963,28 @@ emailBtn.addEventListener('click', () => {
 
   body += 'RESULT SUMMARY\n';
   body += HR_SHORT + '\n';
-  body += `⚠ Flagged for review:  ${flagged.length}\n`;
-  body += `✓ No match found:      ${clear.length}\n\n`;
+  body += `⚠ Active banning orders:     ${activeFlagged.length}\n`;
+  body += `△ Expired orders (low prio): ${expiredFlagged.length}\n`;
+  body += `✓ No match found:            ${clear.length}\n\n`;
 
   body += HR_LONG + '\n';
   body += 'FLAGGED EMPLOYEES — REVIEW REQUIRED\n';
   body += HR_LONG + '\n\n';
 
-  if (flagged.length === 0) {
+  if (activeFlagged.length === 0 && expiredFlagged.length === 0) {
     body += '✓ No matches found across all employees checked.\n\n';
   } else {
-    flagged.forEach((r, i) => {
-      const hasA = r.acqscMatches.length > 0;
-      const hasN = r.ndisMatches.length  > 0;
-      const reg  = hasA && hasN ? 'Both' : hasA ? 'Aged Care' : 'NDIS';
-
-      body += `${i + 1}. ${r.employee.fullName.toUpperCase()}\n`;
-      body += `   Office:       ${r.employee.location}\n`;
-      body += `   Register:     ${reg}\n`;
-
-      const allMatches = [...r.acqscMatches, ...r.ndisMatches];
-      allMatches.forEach(m => {
-        const e   = m.entry;
-        const loc = [e.suburb, e.state].filter(s => s && s.trim()).join(', ');
-        body += `   Matched name: ${e.name}\n`;
-        body += `   Location:     ${loc}\n`;
-        body += `   Order type:   ${e.orderType || ''}\n`;
-        body += `   Order ends:   ${fmtOrderEnd(e.endDate)}\n`;
-      });
-      body += '\n';
-    });
+    if (activeFlagged.length > 0) {
+      body += 'ACTIVE BANNING ORDERS\n';
+      body += HR_SHORT + '\n\n';
+      activeFlagged.forEach((r, i) => { body += flaggedBlock(r, i); });
+    }
+    if (expiredFlagged.length > 0) {
+      body += 'EXPIRED ORDERS (LOWER PRIORITY)\n';
+      body += HR_SHORT + '\n';
+      body += 'No longer in force — review for context only.\n\n';
+      expiredFlagged.forEach((r, i) => { body += flaggedBlock(r, i); });
+    }
   }
 
   body += HR_LONG + '\n';
@@ -953,16 +1024,24 @@ downloadBtn.addEventListener('click', () => {
 
   for (const r of results) {
     const emp       = r.employee;
-    const isFlagged = r.acqscMatches.length > 0 || r.ndisMatches.length > 0;
-    const reason    = [
-      ...r.acqscMatches.map(m => m.entry.reason).filter(Boolean).map(x => `Aged Care: ${x}`),
-      ...r.ndisMatches.map(m => m.entry.reason).filter(Boolean).map(x => `NDIS: ${x}`)
-    ].join('; ');
+    const isFlagged = hasAnyMatch(r);
+    const active    = isFlagged && hasActiveMatch(r);
+    const status    = !isFlagged ? 'Not Banned'
+                    : active     ? 'Banned'
+                                 : 'Banned (expired order)';
+    const reason    = matchesOf(r)
+      .filter(m => m.entry.reason)
+      .map(m => {
+        const reg = m.entry.register === 'acqsc' ? 'Aged Care' : 'NDIS';
+        const tag = m.entry.active ? '' : ' (expired)';
+        return `${reg}${tag}: ${m.entry.reason}`;
+      })
+      .join('; ');
 
     rows.push([
       checkDate, acqscFD, ndisFD,
       emp.firstName, emp.lastName, nextDate,
-      isFlagged ? 'Banned' : 'Not Banned',
+      status,
       reason
     ]);
   }
