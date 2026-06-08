@@ -417,7 +417,7 @@ const NDIS_CSV  = './ndis-register.csv';
 // ─── Application state ────────────────────────────────────────────────────────
 let employees    = [];   // { location, firstName, lastName, fullName }
 let acqscRows    = [];   // normalised ACQSC register entries
-let ndisRows     = [];   // normalised NDIS banning order entries (all, incl. expired & orgs)
+let ndisRows     = [];   // normalised NDIS entries (all action types, incl. expired & orgs)
 let results      = [];   // { employee, acqscMatches, ndisMatches }
 let runAt        = null;
 let acqscFetchAt = null;
@@ -679,7 +679,7 @@ async function fetchNdis() {
   const text = await resp.text();
   const { data } = parseCsv(text, 'NDIS');
   return {
-    rows:      data.filter(isNdisBanningOrder).map(normaliseNdisRow).filter(r => r.name),
+    rows:      data.map(normaliseNdisRow).filter(r => r.name),
     fetchedAt: new Date()
   };
 }
@@ -715,16 +715,10 @@ function normaliseAcqscRow(row) {
   };
 }
 
-// ─── NDIS register normalisation & filtering ─────────────────────────────────
-
-function isNdisBanningOrder(row) {
-  // Include every banning order in the file, regardless of expiry date,
-  // and including organisations (companies) as well as individuals.
-  // Other NDIS compliance action types (compliance notices, revocations,
-  // suspensions, etc.) are not banning orders and are excluded.
-  const type = (row['Type'] || '').toLowerCase();
-  return type.includes('banning order');
-}
+// ─── NDIS register normalisation ─────────────────────────────────────────────
+// Every row in the NDIS export is checked, regardless of compliance action
+// type (banning orders, compliance notices, revocations, suspensions, etc.),
+// expiry date, or whether the name belongs to an individual or organisation.
 
 function normaliseNdisRow(row) {
   const v = k => (row[k] || '').trim();
@@ -816,7 +810,7 @@ function renderResults() {
     `<strong>Check run:</strong> ${dtStr(runAt)} &nbsp;&bull;&nbsp; ` +
     `<strong>Employees checked:</strong> ${employees.length} &nbsp;&bull;&nbsp; ` +
     `<strong>Aged Care register:</strong> ${acqscRows.length} entries &nbsp;&bull;&nbsp; ` +
-    `<strong>NDIS register:</strong> ${ndisRows.length} banning order entries`;
+    `<strong>NDIS register:</strong> ${ndisRows.length} entries`;
 
   // Stats (5 tiles)
   statsGrid.innerHTML = [
