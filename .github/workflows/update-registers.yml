@@ -2,8 +2,8 @@ name: Update Banning Register CSVs
 
 on:
   schedule:
-    # 1am UTC on the 1st of each month = 11am AEST
-    - cron: '0 1 1 * *'
+    # 1am UTC every day = 11am AEST
+    - cron: '0 1 * * *'
   workflow_dispatch:
 
 jobs:
