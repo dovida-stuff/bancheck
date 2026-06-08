@@ -4,7 +4,7 @@ A browser-based compliance tool for Dovida's People & Culture team. Checks emplo
 
 ## What it does
 
-- Upload a staff list (CSV or Excel) with `Location`, `First Name`, and `Last Name` columns
+- Upload a staff list (CSV or Excel) with `Location`, `First Name`, and `Last Name` columns — **or** check a single person by typing their first and last name
 - The tool checks each name against:
   - **ACQSC Aged Care Banning Register** — issued under the Aged Care Act
   - **NDIS Commission Banning Register** — active individual banning orders only
@@ -15,7 +15,7 @@ A browser-based compliance tool for Dovida's People & Culture team. Checks emplo
 ## How to use it
 
 1. Go to **https://dovida-stuff.github.io/bancheck/**
-2. Upload your employee CSV or Excel file
+2. Either upload your employee CSV or Excel file, or type a single person's **First Name** and **Last Name** and click **Use this name**
 3. Click **Run Check**
 4. Review flagged results and download/email the report
 

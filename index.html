@@ -134,6 +134,33 @@
     .file-status.ok  { color: var(--success); font-weight: 600; }
     .file-status.err { color: var(--danger);  font-weight: 600; }
 
+    /* ── "Or" divider ────────────────────────────────────────── */
+    .or-divider {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 22px 0;
+      color: var(--grey-dark);
+      font-size: 0.74rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .or-divider::before, .or-divider::after { content: ''; flex: 1; height: 1px; background: var(--grey-mid); }
+
+    /* ── Single-name form ────────────────────────────────────── */
+    .single-name-form { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+    .field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 150px; }
+    .field label { font-size: 0.78rem; font-weight: 600; color: var(--grey-dark); }
+    .field input {
+      padding: 9px 12px;
+      border: 1px solid var(--grey-mid);
+      border-radius: var(--radius);
+      font-size: 0.9rem;
+      font-family: inherit;
+    }
+    .field input:focus { outline: none; border-color: var(--purple); box-shadow: 0 0 0 2px var(--purple-bg); }
+
     /* ── Buttons ─────────────────────────────────────────────── */
     .btn {
       display: inline-flex;
@@ -297,10 +324,10 @@
 
 <main>
 
-  <!-- ── Step 1: Upload ─────────────────────────────────────── -->
+  <!-- ── Step 1: Provide names ──────────────────────────────── -->
   <div class="card">
     <div class="step-label">Step 1</div>
-    <h2>Upload Employee List</h2>
+    <h2>Add Employees to Check</h2>
 
     <div class="upload-area" id="uploadArea">
       <div class="upload-icon">📄</div>
@@ -311,6 +338,21 @@
     </div>
 
     <div class="file-status" id="fileStatus">No file selected.</div>
+
+    <div class="or-divider">or check a single name</div>
+
+    <div class="single-name-form">
+      <div class="field">
+        <label for="singleFirst">First Name</label>
+        <input type="text" id="singleFirst" autocomplete="off" placeholder="e.g. Jane">
+      </div>
+      <div class="field">
+        <label for="singleLast">Last Name</label>
+        <input type="text" id="singleLast" autocomplete="off" placeholder="e.g. Smith">
+      </div>
+      <button class="btn btn-outline" id="singleBtn" type="button">Use this name</button>
+    </div>
+    <div class="file-status" id="singleStatus"></div>
 
     <div class="data-notice">
       &#128274; <strong>Data handling:</strong> Employee names are processed locally in your browser.
@@ -388,6 +430,10 @@ let ndisFetchAt  = null;
 const uploadArea     = document.getElementById('uploadArea');
 const fileInput      = document.getElementById('fileInput');
 const fileStatus     = document.getElementById('fileStatus');
+const singleFirst    = document.getElementById('singleFirst');
+const singleLast     = document.getElementById('singleLast');
+const singleBtn      = document.getElementById('singleBtn');
+const singleStatus   = document.getElementById('singleStatus');
 const runBtn         = document.getElementById('runBtn');
 const statusMsg      = document.getElementById('statusMsg');
 const resultsCard    = document.getElementById('resultsCard');
@@ -510,6 +556,12 @@ function loadEmployees(rows, filename) {
     return;
   }
 
+  // Switching to a file clears any single-name entry
+  singleFirst.value = '';
+  singleLast.value  = '';
+  singleStatus.textContent = '';
+  singleStatus.className    = 'file-status';
+
   uploadArea.classList.add('loaded');
   fileStatus.textContent = `✓ ${employees.length} employee${employees.length !== 1 ? 's' : ''} loaded from “${filename}”`;
   fileStatus.className = 'file-status ok';
@@ -521,6 +573,41 @@ function setFileError(msg) {
   fileStatus.textContent = msg;
   fileStatus.className   = 'file-status err';
   runBtn.disabled = true;
+}
+
+// ─── Single-name entry ────────────────────────────────────────────────────────
+singleBtn.addEventListener('click', loadSingleName);
+[singleFirst, singleLast].forEach(input =>
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') loadSingleName(); })
+);
+
+function loadSingleName() {
+  const fn = strip(singleFirst.value);
+  const ln = strip(singleLast.value);
+
+  if (!ln) {
+    singleStatus.textContent = 'Please enter at least a last name to check.';
+    singleStatus.className    = 'file-status err';
+    return;
+  }
+
+  employees = [{
+    location:  '',
+    firstName: fn,
+    lastName:  ln,
+    fullName:  [fn, ln].filter(Boolean).join(' ')
+  }];
+
+  // Switching to a single name clears any uploaded file
+  fileInput.value = '';
+  uploadArea.classList.remove('loaded');
+  fileStatus.textContent = 'No file selected.';
+  fileStatus.className    = 'file-status';
+
+  singleStatus.textContent = `✓ Ready to check “${employees[0].fullName}”`;
+  singleStatus.className    = 'file-status ok';
+  runBtn.disabled = false;
+  hideStatus();
 }
 
 // ─── Run check ────────────────────────────────────────────────────────────────
@@ -782,7 +869,7 @@ function renderResults() {
       ${clear.map(r =>
         `<div class="clear-item">
           <div class="ci-name">${esc(r.employee.fullName)}</div>
-          <div class="ci-loc">${esc(r.employee.location)}</div>
+          ${r.employee.location ? `<div class="ci-loc">${esc(r.employee.location)}</div>` : ''}
         </div>`
       ).join('')}
     </div>`;
@@ -829,7 +916,7 @@ function renderFlagged(r) {
       <div class="emp-info">
         <div class="emp-name">⚑ ${esc(emp.fullName)}</div>
         <div class="emp-meta">
-          <span class="emp-location">📍 ${esc(emp.location)}</span>
+          ${emp.location ? `<span class="emp-location">📍 ${esc(emp.location)}</span>` : ''}
           <span class="badge ${label.cls}">${label.text}</span>
         </div>
       </div>
