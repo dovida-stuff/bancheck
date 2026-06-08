@@ -414,13 +414,10 @@
 const ACQSC_CSV = './aged-care-register.csv';
 const NDIS_CSV  = './ndis-register.csv';
 
-// Org-name patterns to exclude from NDIS results (companies, not individuals)
-const ORG_RE = /pty\.?\s*ltd|(?:^|\s)pty(?:\s|$)|t\/a|\btrust\b|\binc\.?\b|\bltd\.?\b/i;
-
 // ─── Application state ────────────────────────────────────────────────────────
 let employees    = [];   // { location, firstName, lastName, fullName }
 let acqscRows    = [];   // normalised ACQSC register entries
-let ndisRows     = [];   // normalised active individual NDIS entries
+let ndisRows     = [];   // normalised NDIS entries (all action types, incl. expired & orgs)
 let results      = [];   // { employee, acqscMatches, ndisMatches }
 let runAt        = null;
 let acqscFetchAt = null;
@@ -682,7 +679,7 @@ async function fetchNdis() {
   const text = await resp.text();
   const { data } = parseCsv(text, 'NDIS');
   return {
-    rows:      data.filter(isActiveNdisRow).map(normaliseNdisRow).filter(r => r.name),
+    rows:      data.map(normaliseNdisRow).filter(r => r.name),
     fetchedAt: new Date()
   };
 }
@@ -718,28 +715,10 @@ function normaliseAcqscRow(row) {
   };
 }
 
-// ─── NDIS register normalisation & filtering ─────────────────────────────────
-
-function isActiveNdisRow(row) {
-  // Only banning orders
-  const type = (row['Type'] || '').toLowerCase();
-  if (!type.includes('banning order')) return false;
-
-  // Exclude obvious organisations
-  const name = row['Name'] || '';
-  if (ORG_RE.test(name)) return false;
-
-  // Only currently active orders
-  const endDate = (row['Date no longer in force'] || '').trim();
-  if (endDate) {
-    try {
-      const d = new Date(endDate);
-      if (!isNaN(d.getTime()) && d <= new Date()) return false;
-    } catch (_) { /* keep if date unparseable */ }
-  }
-
-  return true;
-}
+// ─── NDIS register normalisation ─────────────────────────────────────────────
+// Every row in the NDIS export is checked, regardless of compliance action
+// type (banning orders, compliance notices, revocations, suspensions, etc.),
+// expiry date, or whether the name belongs to an individual or organisation.
 
 function normaliseNdisRow(row) {
   const v = k => (row[k] || '').trim();
@@ -831,7 +810,7 @@ function renderResults() {
     `<strong>Check run:</strong> ${dtStr(runAt)} &nbsp;&bull;&nbsp; ` +
     `<strong>Employees checked:</strong> ${employees.length} &nbsp;&bull;&nbsp; ` +
     `<strong>Aged Care register:</strong> ${acqscRows.length} entries &nbsp;&bull;&nbsp; ` +
-    `<strong>NDIS register:</strong> ${ndisRows.length} active individual entries`;
+    `<strong>NDIS register:</strong> ${ndisRows.length} entries`;
 
   // Stats (5 tiles)
   statsGrid.innerHTML = [
