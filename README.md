@@ -7,7 +7,7 @@ A browser-based compliance tool for Dovida's People & Culture team. Checks emplo
 - Upload a staff list (CSV or Excel) with `Location`, `First Name`, and `Last Name` columns — **or** check a single person by typing their first and last name
 - The tool checks each name against:
   - **ACQSC Aged Care Banning Register** — issued under the Aged Care Act
-  - **NDIS Commission Banning Register** — active individual banning orders only
+  - **NDIS Commission Banning Register** — all banning orders, including expired orders and organisations (other NDIS compliance action types are excluded)
 - Produces a colour-coded results page showing flagged employees and match details
 - Flagged employees can be exported as CSV or emailed as a report
 - All processing happens in the browser — no employee data is transmitted to any server
