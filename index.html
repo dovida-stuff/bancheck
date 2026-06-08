@@ -53,10 +53,11 @@
       --success-bg:   #edfaf1;
       --danger:       #b91c1c;
       --danger-bg:    #fef2f2;
-      --amber:        #b45309;
-      --amber-bg:     #fffbeb;
-      --amber-border: #fcd34d;
-      --amber-pill:   #fef3c7;
+      --review:        #1d4ed8;
+      --review-bg:     #eff6ff;
+      --review-border: #93c5fd;
+      --review-accent: #2563eb;
+      --review-pill:   #dbeafe;
       --warn-bg:      #fffbeb;
       --warn-border:  #d97706;
       --info-bg:      #eff6ff;
@@ -254,17 +255,17 @@
     .flagged-card[open] .toggle-text::before { content: 'Hide details ▴'; }
     .flagged-body { padding: 0 20px 18px; }
 
-    /* Softer (amber) styling: partial name match, or a non-banning action type */
-    .flagged-card.soft { background: var(--amber-bg); border-color: var(--amber-border); border-left-color: var(--warn-border); }
+    /* Softer (blue) styling: partial name match, or a non-banning action type */
+    .flagged-card.soft { background: var(--review-bg); border-color: var(--review-border); border-left-color: var(--review-accent); }
     .flagged-card.soft .emp-name,
-    .flagged-card.soft .toggle-text { color: var(--amber); }
+    .flagged-card.soft .toggle-text { color: var(--review); }
 
     /* Legend explaining the two flag colours */
     .flag-legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 0.78rem; color: var(--grey-dark); margin: -4px 0 14px; }
     .flag-legend .key { display: inline-flex; align-items: center; gap: 6px; }
     .flag-legend .swatch { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
     .flag-legend .swatch.high { background: var(--danger); }
-    .flag-legend .swatch.soft { background: var(--warn-border); }
+    .flag-legend .swatch.soft { background: var(--review-accent); }
 
     .register-section { margin-bottom: 10px; width: 100%; }
     .register-section:last-child { margin-bottom: 0; }
@@ -275,11 +276,26 @@
     .match-card { background: var(--white); border: 1px solid var(--grey-mid); border-left: 3px solid var(--grey-mid); border-radius: 6px; padding: 12px 14px; margin-bottom: 8px; width: 100%; }
     .match-card:last-child { margin-bottom: 0; }
     .match-card.high { border-left-color: var(--danger); }
-    .match-card.soft { border-left-color: var(--warn-border); }
+    .match-card.soft { border-left-color: var(--review-accent); }
     .match-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 8px; gap: 8px; }
     .match-name  { font-weight: 700; font-size: 0.92rem; }
     .score-pill  { flex-shrink: 0; font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 4px; background: #fee2e2; color: var(--danger); }
-    .score-pill.soft { background: var(--amber-pill); color: var(--amber); }
+    .score-pill.soft { background: var(--review-pill); color: var(--review); }
+
+    /* Dismiss action (partial matches only) */
+    .match-actions { display: flex; justify-content: flex-end; margin-top: 8px; }
+    .dismiss-btn {
+      font-size: 0.76rem;
+      font-weight: 600;
+      color: var(--grey-dark);
+      background: var(--white);
+      border: 1px solid var(--grey-mid);
+      border-radius: 6px;
+      padding: 4px 11px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .dismiss-btn:hover { background: var(--grey); color: var(--text); border-color: var(--grey-dark); }
     .match-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 3px 14px; font-size: 0.82rem; width: 100%; }
     .mf { color: var(--grey-dark); }
     .mf span { color: var(--text); font-weight: 500; }
@@ -661,7 +677,8 @@ async function runCheck() {
   );
 
   runAt   = new Date();
-  results = employees.map(emp => ({
+  results = employees.map((emp, i) => ({
+    id:           i,   // stable index into results, used to target dismissals
     employee:     emp,
     acqscMatches: matchEmployee(emp, acqscRows),
     ndisMatches:  matchEmployee(emp, ndisRows)
@@ -852,7 +869,7 @@ function renderResults() {
       </div>
       <div class="flag-legend">
         <span class="key"><span class="swatch high"></span> Full name match against a banning order</span>
-        <span class="key"><span class="swatch soft"></span> Partial match or non-banning action — review</span>
+        <span class="key"><span class="swatch soft"></span> Partial match or non-banning action — review (can be dismissed)</span>
       </div>` +
       flagged.map(renderFlagged).join('');
   } else {
@@ -900,7 +917,7 @@ function registerLabel(r) {
 
 // A match is "high" severity (red) only when the name matches in full AND the
 // register entry is a banning order. Everything else — a partial name match, or
-// a non-banning compliance action — is "soft" severity (amber, less alarming).
+// a non-banning compliance action — is "soft" severity (blue, less alarming).
 function isHighSeverity(m) {
   return m.score >= 1.0 && m.entry.isBanning;
 }
@@ -913,14 +930,14 @@ function renderFlagged(r) {
   const acqscHtml = r.acqscMatches.length > 0
     ? `<div class="register-section">
         <div class="register-heading rh-acqsc">Aged Care Register</div>
-        ${r.acqscMatches.map(m => renderMatchCard(m)).join('')}
+        ${r.acqscMatches.map((m, i) => renderMatchCard(m, r.id, 'acqsc', i)).join('')}
        </div>`
     : '';
 
   const ndisHtml = r.ndisMatches.length > 0
     ? `<div class="register-section">
         <div class="register-heading rh-ndis">NDIS Register</div>
-        ${r.ndisMatches.map(m => renderMatchCard(m)).join('')}
+        ${r.ndisMatches.map((m, i) => renderMatchCard(m, r.id, 'ndis', i)).join('')}
        </div>`
     : '';
 
@@ -939,12 +956,20 @@ function renderFlagged(r) {
   </details>`;
 }
 
-function renderMatchCard(m) {
+function renderMatchCard(m, empId, reg, idx) {
   const e    = m.entry;
   const high = isHighSeverity(m);
   const scoreLabel =
     m.score >= 1.0  ? 'Full name match'    :
     m.score >= 0.75 ? 'Initial name match' : 'Name variant';
+
+  // Only partial / non-banning (soft) matches can be dismissed
+  const dismissHtml = high ? '' :
+    `<div class="match-actions">
+      <button type="button" class="dismiss-btn"
+        data-emp="${empId}" data-reg="${reg}" data-idx="${idx}"
+        title="Discard this partial match for this session">Dismiss match</button>
+    </div>`;
 
   const fields = [
     e.suburb    && `<div class="mf">Suburb: <span>${esc(e.suburb)}</span></div>`,
@@ -962,8 +987,26 @@ function renderMatchCard(m) {
       <span class="score-pill${high ? '' : ' soft'}">${scoreLabel}</span>
     </div>
     <div class="match-fields">${fields || '<div class="mf">No additional details available</div>'}</div>
+    ${dismissHtml}
   </div>`;
 }
+
+// ─── Dismiss partial matches (session-only) ───────────────────────────────────
+// Removes the targeted match from the in-memory results, then re-renders. If an
+// employee has no remaining matches they fall back into the Clear list and are
+// exported as "Not Banned". Nothing is persisted — a re-run restores all matches.
+flaggedSection.addEventListener('click', e => {
+  const btn = e.target.closest('.dismiss-btn');
+  if (!btn) return;
+  e.preventDefault();
+  e.stopPropagation();
+
+  const r = results[+btn.dataset.emp];
+  if (!r) return;
+  const arr = btn.dataset.reg === 'acqsc' ? r.acqscMatches : r.ndisMatches;
+  arr.splice(+btn.dataset.idx, 1);
+  renderResults();
+});
 
 // ─── Email report ─────────────────────────────────────────────────────────────
 emailBtn.addEventListener('click', () => {

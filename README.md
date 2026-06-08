@@ -70,6 +70,12 @@ Flagged results are colour-coded by how serious the match is:
 | Colour | Meaning |
 |--------|---------|
 | 🔴 Red | A **full name match** against a **banning order** — the strongest signal |
-| 🟠 Amber | A **partial name match** (initial or variant), or a match against a **non-banning compliance action** (compliance notice, revocation, suspension, etc.) — lower confidence, still review |
+| 🔵 Blue | A **partial name match** (initial or variant), or a match against a **non-banning compliance action** (compliance notice, revocation, suspension, etc.) — lower confidence, still review |
 
-Amber is not "safe" — every flagged result still requires manual verification. The colour only indicates relative confidence.
+Blue is not "safe" — every flagged result still requires manual verification. The colour only indicates relative confidence.
+
+### Dismissing partial matches
+
+Blue (partial) matches can be **dismissed** during review using the **Dismiss match** button. Dismissing removes that match from the results; if an employee has no remaining matches they drop into the Clear list and export as "Not Banned". Full-name matches against banning orders (red) cannot be dismissed.
+
+Dismissals are **session-only** — nothing is stored, and re-running the check restores all matches.
