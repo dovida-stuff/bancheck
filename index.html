@@ -6,10 +6,10 @@
              Checks employee names against two Australian banning registers:
                1. ACQSC Aged Care Banning Register
                2. NDIS Quality & Safeguards Commission Banning Register
-  Registers: Stored as static CSVs in this repo, updated monthly by GitHub Actions.
+  Registers: Stored as static CSVs in this repo, updated daily by GitHub Actions.
     aged-care-register.csv  — ACQSC banning orders
     ndis-register.csv       — NDIS Commission banning orders
-  Update : Registers are refreshed automatically on the 1st of each month.
+  Update : Registers are refreshed automatically every day.
            To update immediately, run the "Update Banning Register CSVs" workflow manually.
   Security:
     - CSP restricts scripts to self + cdnjs, connections to same-origin only,
@@ -385,7 +385,7 @@
     <h2>Run Compliance Check</h2>
     <p style="font-size:.88rem;color:var(--grey-dark);margin-bottom:12px">
       Checks employee names against locally cached register data.
-      Registers are updated automatically each month via GitHub Actions.
+      Registers are updated automatically each day via GitHub Actions.
     </p>
     <div class="register-dates" id="registerDates">Register data last updated: loading…</div>
     <button class="btn btn-primary" id="runBtn" disabled>Run Check</button>

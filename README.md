@@ -30,7 +30,7 @@ The register CSVs are stored in this repository and served as static files by Gi
 | `aged-care-register.csv` | ACQSC Aged Care Banning Register |
 | `ndis-register.csv` | NDIS Commission Banning Register |
 
-A GitHub Actions workflow automatically refreshes both files on the **1st of every month at 11am AEST**.
+A GitHub Actions workflow automatically refreshes both files **daily at 11am AEST**.
 
 ## How to manually trigger a register update
 
