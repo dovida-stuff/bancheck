@@ -62,3 +62,14 @@ Names are compared using normalised fuzzy matching:
 | 0.65 — Name variant | Last name matches; employee first name matches a middle name on the register |
 
 All matches ≥ 0.65 are flagged for manual review. **Flagged results must be verified before any employment action is taken.**
+
+### Flag colours
+
+Flagged results are colour-coded by how serious the match is:
+
+| Colour | Meaning |
+|--------|---------|
+| 🔴 Red | A **full name match** against a **banning order** — the strongest signal |
+| 🟠 Amber | A **partial name match** (initial or variant), or a match against a **non-banning compliance action** (compliance notice, revocation, suspension, etc.) — lower confidence, still review |
+
+Amber is not "safe" — every flagged result still requires manual verification. The colour only indicates relative confidence.

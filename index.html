@@ -53,6 +53,10 @@
       --success-bg:   #edfaf1;
       --danger:       #b91c1c;
       --danger-bg:    #fef2f2;
+      --amber:        #b45309;
+      --amber-bg:     #fffbeb;
+      --amber-border: #fcd34d;
+      --amber-pill:   #fef3c7;
       --warn-bg:      #fffbeb;
       --warn-border:  #d97706;
       --info-bg:      #eff6ff;
@@ -250,17 +254,32 @@
     .flagged-card[open] .toggle-text::before { content: 'Hide details ▴'; }
     .flagged-body { padding: 0 20px 18px; }
 
+    /* Softer (amber) styling: partial name match, or a non-banning action type */
+    .flagged-card.soft { background: var(--amber-bg); border-color: var(--amber-border); border-left-color: var(--warn-border); }
+    .flagged-card.soft .emp-name,
+    .flagged-card.soft .toggle-text { color: var(--amber); }
+
+    /* Legend explaining the two flag colours */
+    .flag-legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 0.78rem; color: var(--grey-dark); margin: -4px 0 14px; }
+    .flag-legend .key { display: inline-flex; align-items: center; gap: 6px; }
+    .flag-legend .swatch { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+    .flag-legend .swatch.high { background: var(--danger); }
+    .flag-legend .swatch.soft { background: var(--warn-border); }
+
     .register-section { margin-bottom: 10px; width: 100%; }
     .register-section:last-child { margin-bottom: 0; }
     .register-heading { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px; padding: 2px 8px; border-radius: 4px; display: inline-block; }
     .rh-acqsc { background: #ede9fe; color: #5b21b6; }
     .rh-ndis  { background: #dbeafe; color: #1e40af; }
 
-    .match-card { background: var(--white); border: 1px solid var(--grey-mid); border-radius: 6px; padding: 12px 14px; margin-bottom: 8px; width: 100%; }
+    .match-card { background: var(--white); border: 1px solid var(--grey-mid); border-left: 3px solid var(--grey-mid); border-radius: 6px; padding: 12px 14px; margin-bottom: 8px; width: 100%; }
     .match-card:last-child { margin-bottom: 0; }
+    .match-card.high { border-left-color: var(--danger); }
+    .match-card.soft { border-left-color: var(--warn-border); }
     .match-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 8px; gap: 8px; }
     .match-name  { font-weight: 700; font-size: 0.92rem; }
     .score-pill  { flex-shrink: 0; font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 4px; background: #fee2e2; color: var(--danger); }
+    .score-pill.soft { background: var(--amber-pill); color: var(--amber); }
     .match-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 3px 14px; font-size: 0.82rem; width: 100%; }
     .mf { color: var(--grey-dark); }
     .mf span { color: var(--text); font-weight: 500; }
@@ -711,7 +730,8 @@ function normaliseAcqscRow(row) {
     postcode:  v('Postcode'),
     orderDate: v('Ban Start Date'),
     orderType: v('Status'),
-    reason:    v('Description')
+    reason:    v('Description'),
+    isBanning: true   // the ACQSC register is exclusively banning orders
   };
 }
 
@@ -722,15 +742,17 @@ function normaliseAcqscRow(row) {
 
 function normaliseNdisRow(row) {
   const v = k => (row[k] || '').trim();
+  const type = v('Type');
   return {
     name:      v('Name'),
     suburb:    v('City'),
     state:     v('State'),
     postcode:  v('Postcode'),
     orderDate: v('Date effective from'),
-    orderType: v('Type'),
+    orderType: type,
     reason:    v('Relevant information'),
-    endDate:   v('Date no longer in force')
+    endDate:   v('Date no longer in force'),
+    isBanning: type.toLowerCase().includes('banning order')
   };
 }
 
@@ -827,6 +849,10 @@ function renderResults() {
       `<div class="sec-head">
         <div class="sec-title">Flagged Employees</div>
         <span class="badge badge-danger">${flagged.length} flagged</span>
+      </div>
+      <div class="flag-legend">
+        <span class="key"><span class="swatch high"></span> Full name match against a banning order</span>
+        <span class="key"><span class="swatch soft"></span> Partial match or non-banning action — review</span>
       </div>` +
       flagged.map(renderFlagged).join('');
   } else {
@@ -872,9 +898,17 @@ function registerLabel(r) {
   return                          { text: 'NDIS Register', cls: 'badge-ndis' };
 }
 
+// A match is "high" severity (red) only when the name matches in full AND the
+// register entry is a banning order. Everything else — a partial name match, or
+// a non-banning compliance action — is "soft" severity (amber, less alarming).
+function isHighSeverity(m) {
+  return m.score >= 1.0 && m.entry.isBanning;
+}
+
 function renderFlagged(r) {
   const emp   = r.employee;
   const label = registerLabel(r);
+  const high  = [...r.acqscMatches, ...r.ndisMatches].some(isHighSeverity);
 
   const acqscHtml = r.acqscMatches.length > 0
     ? `<div class="register-section">
@@ -890,7 +924,7 @@ function renderFlagged(r) {
        </div>`
     : '';
 
-  return `<details class="flagged-card">
+  return `<details class="flagged-card${high ? '' : ' soft'}">
     <summary class="flagged-summary">
       <div class="emp-info">
         <div class="emp-name">⚑ ${esc(emp.fullName)}</div>
@@ -906,7 +940,8 @@ function renderFlagged(r) {
 }
 
 function renderMatchCard(m) {
-  const e = m.entry;
+  const e    = m.entry;
+  const high = isHighSeverity(m);
   const scoreLabel =
     m.score >= 1.0  ? 'Full name match'    :
     m.score >= 0.75 ? 'Initial name match' : 'Name variant';
@@ -921,10 +956,10 @@ function renderMatchCard(m) {
     e.reason    && `<div class="mf mf-full">Reason: <span>${esc(e.reason)}</span></div>`
   ].filter(Boolean).join('');
 
-  return `<div class="match-card">
+  return `<div class="match-card ${high ? 'high' : 'soft'}">
     <div class="match-header">
       <div class="match-name">${esc(e.name)}</div>
-      <span class="score-pill">${scoreLabel}</span>
+      <span class="score-pill${high ? '' : ' soft'}">${scoreLabel}</span>
     </div>
     <div class="match-fields">${fields || '<div class="mf">No additional details available</div>'}</div>
   </div>`;
