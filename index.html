@@ -201,6 +201,7 @@
     .single-name-form { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
     .field { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 150px; }
     .field label { font-size: 0.78rem; font-weight: 600; color: var(--grey-dark); }
+    .label-optional { font-weight: 400; opacity: 0.75; }
     .field input {
       padding: 10px 13px;
       border: 1px solid var(--grey-mid);
@@ -366,6 +367,17 @@
     .match-name  { font-weight: 700; font-size: 0.92rem; }
     .score-pill  { flex-shrink: 0; font-size: 0.72rem; font-weight: 700; padding: 2px 9px; border-radius: 100px; background: #fee2e2; color: var(--danger); }
     .score-pill.soft { background: var(--review-pill); color: var(--review); }
+    .middle-confirm {
+      display: inline-block;
+      font-size: 0.76rem;
+      font-weight: 700;
+      color: var(--success);
+      background: var(--success-bg);
+      border: 1px solid var(--success-border);
+      border-radius: 100px;
+      padding: 1px 9px;
+      margin-bottom: 8px;
+    }
 
     /* Dismiss action (partial matches only) */
     .match-actions { display: flex; justify-content: flex-end; margin-top: 8px; }
@@ -476,6 +488,10 @@
         <input type="text" id="singleFirst" autocomplete="off" placeholder="e.g. Jane">
       </div>
       <div class="field">
+        <label for="singleMiddle">Middle name <span class="label-optional">(optional)</span></label>
+        <input type="text" id="singleMiddle" autocomplete="off" placeholder="e.g. Anne">
+      </div>
+      <div class="field">
         <label for="singleLast">Last name</label>
         <input type="text" id="singleLast" autocomplete="off" placeholder="e.g. Smith">
       </div>
@@ -563,6 +579,7 @@ const uploadArea     = document.getElementById('uploadArea');
 const fileInput      = document.getElementById('fileInput');
 const fileStatus     = document.getElementById('fileStatus');
 const singleFirst    = document.getElementById('singleFirst');
+const singleMiddle   = document.getElementById('singleMiddle');
 const singleLast     = document.getElementById('singleLast');
 const singleStatus   = document.getElementById('singleStatus');
 const runBtn         = document.getElementById('runBtn');
@@ -660,6 +677,7 @@ function loadEmployees(rows, filename) {
 
   const locCol = colFor('location', 'office', 'site', 'branch');
   const fnCol  = colFor('first name', 'firstname', 'given name', 'givenname');
+  const mnCol  = colFor('middle name', 'middlename', 'middle');  // optional
   const lnCol  = colFor('last name', 'lastname', 'surname', 'family name', 'familyname');
 
   if (!fnCol || !lnCol) {
@@ -671,12 +689,14 @@ function loadEmployees(rows, filename) {
   employees = rows
     .map(r => {
       const fn = strip(r[fnCol]);
+      const mn = mnCol ? strip(r[mnCol]) : '';
       const ln = strip(r[lnCol]);
       return {
-        location:  locCol ? strip(r[locCol]) : '',
-        firstName: fn,
-        lastName:  ln,
-        fullName:  [fn, ln].filter(Boolean).join(' ')
+        location:   locCol ? strip(r[locCol]) : '',
+        firstName:  fn,
+        middleName: mn,
+        lastName:   ln,
+        fullName:   [fn, mn, ln].filter(Boolean).join(' ')
       };
     })
     .filter(e => e.firstName || e.lastName);
@@ -688,8 +708,9 @@ function loadEmployees(rows, filename) {
 
   // Switching to a file clears any single-name entry
   fileLoaded = true;
-  singleFirst.value = '';
-  singleLast.value  = '';
+  singleFirst.value  = '';
+  singleMiddle.value = '';
+  singleLast.value   = '';
   singleStatus.textContent = '';
   singleStatus.className    = 'file-status';
 
@@ -711,9 +732,9 @@ function setFileError(msg) {
 // No separate "use this name" step: Run Check picks up whatever is typed here.
 // Typing a name discards any uploaded file (and uploading a file clears these
 // fields), so exactly one source of names is ever active.
-[singleFirst, singleLast].forEach(input => {
+[singleFirst, singleMiddle, singleLast].forEach(input => {
   input.addEventListener('input', () => {
-    if (fileLoaded && (singleFirst.value.trim() || singleLast.value.trim())) {
+    if (fileLoaded && (singleFirst.value.trim() || singleMiddle.value.trim() || singleLast.value.trim())) {
       fileLoaded = false;
       employees  = [];
       fileInput.value = '';
@@ -732,6 +753,7 @@ function setFileError(msg) {
 // inline message) if no usable name has been entered.
 function loadSingleName() {
   const fn = strip(singleFirst.value);
+  const mn = strip(singleMiddle.value);
   const ln = strip(singleLast.value);
 
   if (!ln) {
@@ -741,10 +763,11 @@ function loadSingleName() {
   }
 
   employees = [{
-    location:  '',
-    firstName: fn,
-    lastName:  ln,
-    fullName:  [fn, ln].filter(Boolean).join(' ')
+    location:   '',
+    firstName:  fn,
+    middleName: mn,
+    lastName:   ln,
+    fullName:   [fn, mn, ln].filter(Boolean).join(' ')
   }];
   return true;
 }
@@ -995,6 +1018,7 @@ function renderMatchCard(m, empId, reg, idx) {
       <div class="match-name">${esc(e.name)}</div>
       <span class="score-pill${high ? '' : ' soft'}">${scoreLabel}</span>
     </div>
+    ${m.middleMatch ? '<span class="middle-confirm">✓ Middle name also matches</span>' : ''}
     <div class="match-fields">${fields || '<div class="mf">No additional details available</div>'}</div>
     ${dismissHtml}
   </div>`;
@@ -1029,6 +1053,7 @@ downloadBtn.addEventListener('click', () => {
     'Date of Aged Care Banning Register File',
     'Date of NDIS Compliance Export File',
     'First Name',
+    'Middle Name',
     'Last Name',
     'Next check required date',
     'Banned/Not Banned',
@@ -1047,7 +1072,7 @@ downloadBtn.addEventListener('click', () => {
 
     rows.push([
       checkDate, acqscFD, ndisFD,
-      emp.firstName, emp.lastName, nextDate,
+      emp.firstName, emp.middleName || '', emp.lastName, nextDate,
       isFlagged ? 'Banned' : 'Not Banned',
       reason
     ]);

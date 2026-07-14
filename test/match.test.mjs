@@ -113,5 +113,19 @@ check('Unknown name produces no match', h === null);
 h = best('Wilhelmina', 'Tants', ndis);
 check('Wrong first name does not full-match', !h || h.score < 1.0);
 
+// ── 5. Middle name corroboration (confirm-only, never downgrades) ──────────
+function bestM(first, middle, last, rows) {
+  const hits = M.matchEmployee({ firstName: first, middleName: middle, lastName: last }, rows);
+  return hits.length ? hits[0] : null;
+}
+h = bestM('Bobbie', 'Joanne', 'Albertella', acqsc);
+check('Matching middle name sets middleMatch', h && h.score >= 1.0 && h.middleMatch === true);
+h = bestM('Bobbie', 'Karen', 'Albertella', acqsc);
+check('Wrong middle name never downgrades the match', h && h.score >= 1.0 && h.middleMatch === false);
+h = bestM('Bobbie', '', 'Albertella', acqsc);
+check('No middle name provided → no corroboration, same match', h && h.score >= 1.0 && h.middleMatch === false);
+h = bestM('Jacob', 'Alfred', 'Tants', ndis);
+check('Middle name corroborates NDIS "SURNAME, Given" entries', h && h.score >= 1.0 && h.middleMatch === true);
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

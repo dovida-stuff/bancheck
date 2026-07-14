@@ -176,8 +176,20 @@
     return null;
   }
 
+  // Middle names only ever STRENGTHEN a match — the registers record them
+  // inconsistently (often omitted), so a missing or differing middle name
+  // must never downgrade or hide a hit. When the employee's middle name
+  // appears among a candidate's given names, the hit is annotated with
+  // middleMatch: true so reviewers see the extra corroboration.
+  function middleNameMatches(cand, empMiddleTokens) {
+    if (!empMiddleTokens.length || cand.given.length < 2) return false;
+    const middles = cand.given.slice(1);
+    return empMiddleTokens.some(function (t) { return middles.indexOf(t) !== -1; });
+  }
+
   function matchEmployee(emp, registerRows) {
     const empFirstTokens = tokenise(emp.firstName);
+    const empMiddleTokens = tokenise(emp.middleName);
     const empInitial = empFirstTokens.length ? empFirstTokens[0][0] : '';
     const empLastKey = tokenise(emp.lastName).join('');
     if (!empLastKey) return [];
@@ -187,9 +199,12 @@
       let best = null;
       for (const cand of (entry.nameCandidates || [])) {
         const r = scoreCandidate(cand, empFirstTokens, empInitial, empLastKey);
-        if (r && (!best || r.score > best.score)) best = r;
+        if (!r) continue;
+        r.middleMatch = middleNameMatches(cand, empMiddleTokens);
+        // Prefer higher score; at equal score prefer a middle-name-corroborated parse
+        if (!best || r.score > best.score || (r.score === best.score && r.middleMatch && !best.middleMatch)) best = r;
       }
-      if (best) hits.push({ entry: entry, score: best.score, matchType: best.type });
+      if (best) hits.push({ entry: entry, score: best.score, matchType: best.type, middleMatch: best.middleMatch });
     }
 
     // Deduplicate by name+suburb, keep highest score
