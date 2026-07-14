@@ -45,6 +45,16 @@ jobs:
             return 0
           }
 
+          # The source sometimes serves Windows-1252; the browser decodes the
+          # published file as UTF-8, so re-encode when needed.
+          to_utf8() {
+            local f=$1
+            if ! iconv -f UTF-8 -t UTF-8 "$f" >/dev/null 2>&1; then
+              echo "File is not valid UTF-8 — converting from Windows-1252"
+              iconv -f WINDOWS-1252 -t UTF-8 "$f" > "$f.utf8" && mv "$f.utf8" "$f"
+            fi
+          }
+
           # --- Attempt 1: direct fetch with realistic browser fingerprint ---
           echo "=== Attempt 1: direct fetch (Chrome browser fingerprint) ==="
           set +e
@@ -67,6 +77,7 @@ jobs:
 
           if [ "$CURL_EXIT" = "0" ] && [ "$HTTP_CODE" = "200" ] && validate "$TMP"; then
             LINES=$(wc -l < "$TMP")
+            to_utf8 "$TMP"
             mv "$TMP" aged-care-register.csv
             echo "Direct fetch succeeded ($LINES lines) — ScrapingBee not used"
             exit 0
@@ -96,6 +107,7 @@ jobs:
 
           if [ "$CURL_EXIT" = "0" ] && [ "$HTTP_CODE" = "200" ] && validate "$TMP"; then
             LINES=$(wc -l < "$TMP")
+            to_utf8 "$TMP"
             mv "$TMP" aged-care-register.csv
             echo "ScrapingBee succeeded ($LINES lines)"
             exit 0
@@ -128,6 +140,14 @@ jobs:
             return 0
           }
 
+          to_utf8() {
+            local f=$1
+            if ! iconv -f UTF-8 -t UTF-8 "$f" >/dev/null 2>&1; then
+              echo "File is not valid UTF-8 — converting from Windows-1252"
+              iconv -f WINDOWS-1252 -t UTF-8 "$f" > "$f.utf8" && mv "$f.utf8" "$f"
+            fi
+          }
+
           echo "=== Attempt 1: direct fetch (Chrome browser fingerprint) ==="
           set +e
           HTTP_CODE=$(curl -sS -L --max-time 30 --compressed -w "%{http_code}" \
@@ -149,6 +169,7 @@ jobs:
 
           if [ "$CURL_EXIT" = "0" ] && [ "$HTTP_CODE" = "200" ] && validate "$TMP"; then
             LINES=$(wc -l < "$TMP")
+            to_utf8 "$TMP"
             mv "$TMP" ndis-register.csv
             echo "Direct fetch succeeded ($LINES lines) — ScrapingBee not used"
             exit 0
@@ -177,6 +198,7 @@ jobs:
 
           if [ "$CURL_EXIT" = "0" ] && [ "$HTTP_CODE" = "200" ] && validate "$TMP"; then
             LINES=$(wc -l < "$TMP")
+            to_utf8 "$TMP"
             mv "$TMP" ndis-register.csv
             echo "ScrapingBee succeeded ($LINES lines)"
             exit 0

@@ -9,6 +9,8 @@
   Registers: Stored as static CSVs in this repo, updated daily by GitHub Actions.
     aged-care-register.csv  — ACQSC banning orders
     ndis-register.csv       — NDIS Commission banning orders
+  Matching : Shared logic lives in matcher.js (also exercised by
+             test/match.test.mjs against the real register files).
   Update : Registers are refreshed automatically every day.
            To update immediately, run the "Update Banning Register CSVs" workflow manually.
   Security:
@@ -22,7 +24,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <!-- CSP: scripts to self + cdnjs only, no eval, connect to proxy/registers only, no framing -->
+  <!-- CSP: scripts to self + cdnjs only, no eval, connect to same-origin only, no framing -->
   <!-- Note: frame-ancestors only works via HTTP header, not meta tag; include for intent -->
   <meta http-equiv="Content-Security-Policy"
     content="default-src 'none'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'none'; frame-ancestors 'none'; form-action 'none'; base-uri 'self'">
@@ -36,106 +38,148 @@
     src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"
     integrity="sha384-D/t0ZMqQW31H3az8ktEiNb39wyKnS82iFY52QPACM+IjKW3jDUhyIgh2PApRqJZs"
     crossorigin="anonymous"></script>
+  <script src="matcher.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --purple:       #6B4E9B;
-      --purple-dark:  #56408a;
-      --purple-light: #9378c4;
-      --purple-bg:    #f3eefc;
-      --white:        #ffffff;
-      --grey:         #F5F5F5;
-      --grey-mid:     #d8d8d8;
-      --grey-dark:    #5c5c5c;
-      --text:         #1a1a1a;
-      --success:      #1e7a34;
-      --success-bg:   #edfaf1;
-      --danger:       #b91c1c;
-      --danger-bg:    #fef2f2;
+      --purple:        #6B4E9B;
+      --purple-dark:   #554083;
+      --purple-deep:   #46346c;
+      --purple-light:  #9378c4;
+      --purple-bg:     #f1edf8;
+      --white:         #ffffff;
+      --page-bg:       #f6f5f9;
+      --border:        #e6e3ee;
+      --grey-mid:      #d5d2de;
+      --grey-dark:     #625e6e;
+      --text:          #221f2b;
+      --success:       #1e7a34;
+      --success-bg:    #edfaf1;
+      --success-border:#b7e4c3;
+      --danger:        #b91c1c;
+      --danger-bg:     #fef2f2;
+      --danger-border: #fca5a5;
       --review:        #1d4ed8;
       --review-bg:     #eff6ff;
-      --review-border: #93c5fd;
+      --review-border: #bfdbfe;
       --review-accent: #2563eb;
       --review-pill:   #dbeafe;
-      --warn-bg:      #fffbeb;
-      --warn-border:  #d97706;
-      --info-bg:      #eff6ff;
-      --info-border:  #3b82f6;
-      --radius:       8px;
-      --shadow:       0 1px 4px rgba(0,0,0,0.09);
+      --warn-bg:       #fffbeb;
+      --warn-border:   #f3d9a4;
+      --warn-text:     #78350f;
+      --radius:        12px;
+      --radius-sm:     8px;
+      --shadow:        0 1px 2px rgba(34,31,43,0.05), 0 4px 16px rgba(34,31,43,0.05);
     }
 
+    html { scroll-behavior: smooth; }
+
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
-      background: var(--grey);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: var(--page-bg);
       color: var(--text);
       line-height: 1.6;
       min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
     }
 
     /* ── Header ──────────────────────────────────────────────── */
     header {
-      background: var(--purple);
+      background: linear-gradient(135deg, var(--purple-deep) 0%, var(--purple) 70%, #7d5cb3 100%);
       color: var(--white);
-      padding: 18px 32px;
-      display: flex;
-      align-items: center;
-      gap: 20px;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.25);
+      padding: 34px 32px 38px;
     }
-    .logo-wrap { flex: 0 0 auto; }
-    .logo { font-size: 1.7rem; font-weight: 800; letter-spacing: -0.5px; line-height: 1; }
-    .logo-tagline { font-size: 0.7rem; font-weight: 500; opacity: 0.75; letter-spacing: 1.5px; text-transform: uppercase; margin-top: 2px; }
-    .header-divider { width: 1px; height: 40px; background: rgba(255,255,255,0.3); }
-    .header-title { flex: 1; }
-    .header-title h1 { font-size: 1.05rem; font-weight: 700; line-height: 1.3; }
-    .header-title p  { font-size: 0.78rem; opacity: 0.75; margin-top: 2px; }
+    .header-inner {
+      max-width: 880px;
+      margin: 0 auto;
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+    .brand-kicker {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      opacity: 0.72;
+      margin-bottom: 8px;
+    }
+    header h1 { font-size: 1.55rem; font-weight: 800; letter-spacing: -0.3px; line-height: 1.25; }
+    .header-sub { font-size: 0.88rem; opacity: 0.82; margin-top: 6px; max-width: 46ch; }
+    .header-pill {
+      flex-shrink: 0;
+      background: rgba(255,255,255,0.13);
+      border: 1px solid rgba(255,255,255,0.25);
+      border-radius: 100px;
+      padding: 7px 16px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }
 
     /* ── Main layout ─────────────────────────────────────────── */
-    main { max-width: 880px; margin: 0 auto; padding: 28px 16px 72px; }
+    main { max-width: 880px; margin: -14px auto 0; padding: 0 16px 64px; }
 
     /* ── Cards ───────────────────────────────────────────────── */
     .card {
       background: var(--white);
+      border: 1px solid var(--border);
       border-radius: var(--radius);
-      padding: 28px 32px;
-      margin-bottom: 18px;
+      padding: 26px 30px 30px;
+      margin-bottom: 16px;
       box-shadow: var(--shadow);
-      border-left: 4px solid var(--purple);
     }
-    .step-label { font-size: 0.7rem; font-weight: 700; color: var(--purple-light); text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 3px; }
-    .card h2    { font-size: 1.05rem; font-weight: 700; margin-bottom: 14px; }
-
-    /* ── Data handling notice ────────────────────────────────── */
-    .data-notice {
-      background: var(--info-bg);
-      border: 1px solid var(--info-border);
-      border-radius: var(--radius);
-      padding: 10px 14px;
-      font-size: 0.82rem;
-      color: #1e40af;
-      margin-top: 16px;
+    .card-head { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+    .step-num {
+      flex-shrink: 0;
+      width: 30px; height: 30px;
+      border-radius: 50%;
+      background: var(--purple-bg);
+      color: var(--purple);
+      font-size: 0.88rem;
+      font-weight: 800;
+      display: flex; align-items: center; justify-content: center;
     }
+    .card h2 { font-size: 1.08rem; font-weight: 700; letter-spacing: -0.2px; }
+    .card-sub { font-size: 0.84rem; color: var(--grey-dark); margin-top: 1px; }
 
     /* ── Upload area ─────────────────────────────────────────── */
     .upload-area {
-      border: 2px dashed var(--grey-mid);
+      border: 1.5px dashed var(--grey-mid);
       border-radius: var(--radius);
-      padding: 28px 20px;
+      padding: 30px 20px;
       text-align: center;
       cursor: pointer;
       transition: border-color 0.18s, background 0.18s;
       user-select: none;
+      background: #fbfafd;
     }
     .upload-area:hover, .upload-area.drag-over { border-color: var(--purple); background: var(--purple-bg); }
     .upload-area.loaded { border-color: var(--success); background: var(--success-bg); border-style: solid; }
-    .upload-icon { font-size: 2rem; line-height: 1; margin-bottom: 8px; }
+    .upload-icon {
+      width: 44px; height: 44px;
+      margin: 0 auto 10px;
+      border-radius: 50%;
+      background: var(--purple-bg);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.25rem;
+    }
+    .upload-area.loaded .upload-icon { background: #d8f3e0; }
     .upload-area p { font-size: 0.88rem; color: var(--grey-dark); margin-top: 4px; }
-    .upload-area strong { color: var(--text); }
-    .upload-area code { background: var(--grey); border-radius: 4px; padding: 1px 5px; font-size: 0.82rem; }
+    .upload-area p strong { color: var(--text); font-weight: 650; }
+    .upload-area code {
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 1px 6px;
+      font-size: 0.8rem;
+    }
     #fileInput { display: none; }
     .file-status { margin-top: 12px; font-size: 0.85rem; color: var(--grey-dark); }
+    .file-status:empty { margin-top: 0; }
     .file-status.ok  { color: var(--success); font-weight: 600; }
     .file-status.err { color: var(--danger);  font-weight: 600; }
 
@@ -144,73 +188,114 @@
       display: flex;
       align-items: center;
       gap: 12px;
-      margin: 22px 0;
+      margin: 24px 0 18px;
       color: var(--grey-dark);
-      font-size: 0.74rem;
+      font-size: 0.72rem;
       font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: 1px;
+      letter-spacing: 1.2px;
     }
-    .or-divider::before, .or-divider::after { content: ''; flex: 1; height: 1px; background: var(--grey-mid); }
+    .or-divider::before, .or-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
 
     /* ── Single-name form ────────────────────────────────────── */
     .single-name-form { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
-    .field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 150px; }
+    .field { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 150px; }
     .field label { font-size: 0.78rem; font-weight: 600; color: var(--grey-dark); }
     .field input {
-      padding: 9px 12px;
+      padding: 10px 13px;
       border: 1px solid var(--grey-mid);
-      border-radius: var(--radius);
+      border-radius: var(--radius-sm);
       font-size: 0.9rem;
       font-family: inherit;
+      background: var(--white);
+      transition: border-color 0.15s, box-shadow 0.15s;
     }
-    .field input:focus { outline: none; border-color: var(--purple); box-shadow: 0 0 0 2px var(--purple-bg); }
+    .field input:focus { outline: none; border-color: var(--purple); box-shadow: 0 0 0 3px var(--purple-bg); }
 
     /* ── Buttons ─────────────────────────────────────────────── */
     .btn {
       display: inline-flex;
       align-items: center;
-      gap: 7px;
-      padding: 10px 22px;
-      border-radius: var(--radius);
+      gap: 8px;
+      padding: 11px 24px;
+      border-radius: var(--radius-sm);
       border: none;
       font-size: 0.92rem;
-      font-weight: 600;
+      font-weight: 650;
+      font-family: inherit;
       cursor: pointer;
-      transition: background 0.15s, opacity 0.15s;
+      transition: background 0.15s, opacity 0.15s, box-shadow 0.15s;
       text-decoration: none;
       line-height: 1;
     }
-    .btn-primary { background: var(--purple); color: var(--white); }
+    .btn-primary {
+      background: var(--purple);
+      color: var(--white);
+      box-shadow: 0 1px 3px rgba(107,78,155,0.4);
+    }
     .btn-primary:hover:not(:disabled) { background: var(--purple-dark); }
-    .btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
-    .btn-outline { background: var(--white); color: var(--purple); border: 2px solid var(--purple); }
+    .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
+    .btn-outline { background: var(--white); color: var(--purple); border: 1.5px solid var(--purple); padding: 10px 22px; }
     .btn-outline:hover { background: var(--purple-bg); }
 
+    /* ── Register freshness line ─────────────────────────────── */
+    .register-dates {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.82rem;
+      color: var(--grey-dark);
+      background: var(--page-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 9px 14px;
+      margin-bottom: 16px;
+    }
+    .register-dates .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--success);
+      flex-shrink: 0;
+    }
+
     /* ── Status message ──────────────────────────────────────── */
-    .status-msg { margin-top: 14px; padding: 11px 15px; border-radius: var(--radius); font-size: 0.875rem; display: none; }
-    .status-msg.info  { display: block; background: var(--purple-bg); border: 1px solid var(--purple-light); color: var(--purple-dark); }
-    .status-msg.error { display: block; background: var(--danger-bg); border: 1px solid #f87171; color: var(--danger); }
+    .status-msg { margin-top: 14px; padding: 11px 15px; border-radius: var(--radius-sm); font-size: 0.875rem; display: none; }
+    .status-msg.info  { display: block; background: var(--purple-bg); border: 1px solid #d9cdef; color: var(--purple-dark); }
+    .status-msg.error { display: block; background: var(--danger-bg); border: 1px solid var(--danger-border); color: var(--danger); }
 
     /* ── Spinner ─────────────────────────────────────────────── */
     .spinner { display: inline-block; width: 15px; height: 15px; border: 2px solid rgba(255,255,255,0.35); border-top-color: #fff; border-radius: 50%; animation: spin 0.65s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
 
     /* ── Results ─────────────────────────────────────────────── */
-    .audit-bar { background: var(--grey); border-radius: var(--radius); padding: 11px 16px; font-size: 0.8rem; color: var(--grey-dark); margin-bottom: 20px; line-height: 1.8; }
-    .audit-bar strong { color: var(--text); }
+    .audit-bar {
+      background: var(--page-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 11px 16px;
+      font-size: 0.8rem;
+      color: var(--grey-dark);
+      margin-bottom: 20px;
+      line-height: 1.8;
+    }
+    .audit-bar strong { color: var(--text); font-weight: 650; }
 
-    .stats-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 24px; }
-    .stat { background: var(--grey); border-radius: var(--radius); padding: 14px 8px; text-align: center; }
-    .stat-num { font-size: 1.8rem; font-weight: 800; color: var(--purple); line-height: 1; }
+    .stats-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 26px; }
+    .stat {
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 14px 8px 12px;
+      text-align: center;
+    }
+    .stat-num { font-size: 1.7rem; font-weight: 800; color: var(--purple); line-height: 1.1; letter-spacing: -0.5px; }
     .stat-num.danger { color: var(--danger); }
     .stat-num.ok     { color: var(--success); }
-    .stat-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.4px; color: var(--grey-dark); margin-top: 4px; }
+    .stat-label { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--grey-dark); margin-top: 4px; font-weight: 600; }
 
     /* ── Section headers ─────────────────────────────────────── */
-    .sec-head { display: flex; align-items: center; gap: 10px; margin: 20px 0 12px; }
-    .sec-title { font-size: 0.95rem; font-weight: 700; }
-    .badge { display: inline-block; padding: 2px 10px; border-radius: 100px; font-size: 0.75rem; font-weight: 700; }
+    .sec-head { display: flex; align-items: center; gap: 10px; margin: 22px 0 12px; }
+    .sec-title { font-size: 0.98rem; font-weight: 700; }
+    .badge { display: inline-block; padding: 2px 11px; border-radius: 100px; font-size: 0.74rem; font-weight: 700; }
     .badge-danger  { background: #fee2e2; color: var(--danger); }
     .badge-ok      { background: #dcfce7; color: var(--success); }
     .badge-both    { background: #fef3c7; color: #92400e; }
@@ -220,17 +305,17 @@
     /* ── Flagged cards ───────────────────────────────────────── */
     .flagged-card {
       background: var(--danger-bg);
-      border: 1px solid #fca5a5;
+      border: 1px solid var(--danger-border);
       border-left: 4px solid var(--danger);
-      border-radius: var(--radius);
-      margin-bottom: 14px;
+      border-radius: var(--radius-sm);
+      margin-bottom: 12px;
       width: 100%;
       display: block;
     }
     .flagged-summary {
       list-style: none;
       cursor: pointer;
-      padding: 16px 20px;
+      padding: 15px 20px;
       display: flex;
       align-items: flex-start;
       justify-content: space-between;
@@ -239,12 +324,12 @@
     .flagged-summary::-webkit-details-marker { display: none; }
     .flagged-summary::marker { content: ''; }
     .emp-info { flex: 1; min-width: 0; }
-    .emp-name { font-size: 1rem; font-weight: 700; color: var(--danger); }
+    .emp-name { font-size: 0.98rem; font-weight: 700; color: var(--danger); }
     .emp-meta { display: flex; align-items: center; gap: 10px; margin-top: 4px; flex-wrap: wrap; }
     .emp-location { font-size: 0.82rem; color: var(--grey-dark); }
     .toggle-text {
       flex-shrink: 0;
-      font-size: 0.82rem;
+      font-size: 0.8rem;
       font-weight: 600;
       color: var(--danger);
       user-select: none;
@@ -261,25 +346,25 @@
     .flagged-card.soft .toggle-text { color: var(--review); }
 
     /* Legend explaining the two flag colours */
-    .flag-legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 0.78rem; color: var(--grey-dark); margin: -4px 0 14px; }
+    .flag-legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 0.78rem; color: var(--grey-dark); margin: -2px 0 14px; }
     .flag-legend .key { display: inline-flex; align-items: center; gap: 6px; }
-    .flag-legend .swatch { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+    .flag-legend .swatch { width: 11px; height: 11px; border-radius: 3px; flex-shrink: 0; }
     .flag-legend .swatch.high { background: var(--danger); }
     .flag-legend .swatch.soft { background: var(--review-accent); }
 
     .register-section { margin-bottom: 10px; width: 100%; }
     .register-section:last-child { margin-bottom: 0; }
-    .register-heading { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px; padding: 2px 8px; border-radius: 4px; display: inline-block; }
+    .register-heading { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px; padding: 2px 9px; border-radius: 4px; display: inline-block; }
     .rh-acqsc { background: #ede9fe; color: #5b21b6; }
     .rh-ndis  { background: #dbeafe; color: #1e40af; }
 
-    .match-card { background: var(--white); border: 1px solid var(--grey-mid); border-left: 3px solid var(--grey-mid); border-radius: 6px; padding: 12px 14px; margin-bottom: 8px; width: 100%; }
+    .match-card { background: var(--white); border: 1px solid var(--border); border-left: 3px solid var(--grey-mid); border-radius: var(--radius-sm); padding: 12px 14px; margin-bottom: 8px; width: 100%; }
     .match-card:last-child { margin-bottom: 0; }
     .match-card.high { border-left-color: var(--danger); }
     .match-card.soft { border-left-color: var(--review-accent); }
     .match-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 8px; gap: 8px; }
     .match-name  { font-weight: 700; font-size: 0.92rem; }
-    .score-pill  { flex-shrink: 0; font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 4px; background: #fee2e2; color: var(--danger); }
+    .score-pill  { flex-shrink: 0; font-size: 0.72rem; font-weight: 700; padding: 2px 9px; border-radius: 100px; background: #fee2e2; color: var(--danger); }
     .score-pill.soft { background: var(--review-pill); color: var(--review); }
 
     /* Dismiss action (partial matches only) */
@@ -287,6 +372,7 @@
     .dismiss-btn {
       font-size: 0.76rem;
       font-weight: 600;
+      font-family: inherit;
       color: var(--grey-dark);
       background: var(--white);
       border: 1px solid var(--grey-mid);
@@ -295,7 +381,7 @@
       cursor: pointer;
       transition: background 0.15s, color 0.15s, border-color 0.15s;
     }
-    .dismiss-btn:hover { background: var(--grey); color: var(--text); border-color: var(--grey-dark); }
+    .dismiss-btn:hover { background: var(--page-bg); color: var(--text); border-color: var(--grey-dark); }
     .match-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 3px 14px; font-size: 0.82rem; width: 100%; }
     .mf { color: var(--grey-dark); }
     .mf span { color: var(--text); font-weight: 500; }
@@ -303,46 +389,45 @@
 
     /* ── Clear list ──────────────────────────────────────────── */
     .clear-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(195px, 1fr)); gap: 8px; }
-    .clear-item { background: var(--grey); border-radius: 6px; padding: 9px 13px; font-size: 0.85rem; }
+    .clear-item { background: var(--page-bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 9px 13px; font-size: 0.85rem; }
     .ci-name { font-weight: 600; }
     .ci-loc  { font-size: 0.78rem; color: var(--grey-dark); margin-top: 1px; }
 
-    /* ── Register dates ─────────────────────────────────────── */
-    .register-dates {
-      font-size: 0.82rem;
-      color: var(--grey-dark);
-      background: var(--grey);
-      border-radius: var(--radius);
-      padding: 8px 13px;
-      margin-bottom: 14px;
-    }
-
     /* ── Disclaimer ──────────────────────────────────────────── */
     .disclaimer {
+      display: flex;
+      gap: 10px;
       background: var(--warn-bg);
       border: 1px solid var(--warn-border);
-      border-left: 4px solid var(--warn-border);
-      border-radius: var(--radius);
-      padding: 14px 18px;
-      font-size: 0.86rem;
-      font-weight: 600;
-      color: #78350f;
+      border-radius: var(--radius-sm);
+      padding: 13px 16px;
+      font-size: 0.85rem;
+      color: var(--warn-text);
       margin-top: 24px;
     }
+    .disclaimer strong { font-weight: 700; }
 
     /* ── Action row ──────────────────────────────────────────── */
     .action-row { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 22px; }
 
     /* ── Footer ──────────────────────────────────────────────── */
-    footer { background: var(--white); border-top: 1px solid var(--grey-mid); padding: 16px 32px; text-align: center; font-size: 0.78rem; color: var(--grey-dark); }
-    footer a { color: var(--purple); text-decoration: none; }
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 22px 32px 28px;
+      text-align: center;
+      font-size: 0.78rem;
+      color: var(--grey-dark);
+      line-height: 1.9;
+    }
+    footer a { color: var(--purple); text-decoration: none; font-weight: 600; }
     footer a:hover { text-decoration: underline; }
+    .footer-privacy { font-weight: 600; color: var(--text); }
 
     /* ── Responsive ──────────────────────────────────────────── */
     @media (max-width: 640px) {
-      header { flex-wrap: wrap; gap: 12px; }
-      .header-divider { display: none; }
-      .card { padding: 20px 16px; }
+      header { padding: 26px 20px 32px; }
+      .header-inner { align-items: flex-start; }
+      .card { padding: 20px 16px 24px; }
       .stats-grid { grid-template-columns: repeat(3, 1fr); }
       .action-row { flex-direction: column; }
     }
@@ -351,9 +436,13 @@
 <body>
 
 <header>
-  <div class="header-title">
-    <h1>Aged Care &amp; NDIS Banning Register Checker</h1>
-    <p>Checks against ACQSC and NDIS Commission registers &mdash; no data stored, runs in your browser</p>
+  <div class="header-inner">
+    <div>
+      <div class="brand-kicker">Dovida &middot; People &amp; Culture</div>
+      <h1>Banning Register Checker</h1>
+      <p class="header-sub">Screen employees against the ACQSC Aged Care and NDIS Commission banning registers.</p>
+    </div>
+    <div class="header-pill" id="headerPill">Register data refreshed daily</div>
   </div>
 </header>
 
@@ -361,57 +450,63 @@
 
   <!-- ── Step 1: Provide names ──────────────────────────────── -->
   <div class="card">
-    <div class="step-label">Step 1</div>
-    <h2>Add Employees to Check</h2>
+    <div class="card-head">
+      <div class="step-num">1</div>
+      <div>
+        <h2>Add employees to check</h2>
+        <div class="card-sub">Upload a staff list, or check one person by name</div>
+      </div>
+    </div>
 
     <div class="upload-area" id="uploadArea">
-      <div class="upload-icon">📄</div>
-      <p><strong>Click to choose file</strong> &nbsp;or drag &amp; drop here</p>
-      <p>Accepts CSV or Excel &nbsp;&bull;&nbsp; Required columns:
-        <code>Location</code>&thinsp; <code>First Name</code>&thinsp; <code>Last Name</code></p>
+      <div class="upload-icon">&#128196;</div>
+      <p><strong>Click to choose a file</strong> or drag &amp; drop it here</p>
+      <p>CSV or Excel &nbsp;&bull;&nbsp; columns:
+        <code>Location</code> <code>First Name</code> <code>Last Name</code></p>
       <input type="file" id="fileInput" accept=".csv,.xlsx,.xls">
     </div>
 
-    <div class="file-status" id="fileStatus">No file selected.</div>
+    <div class="file-status" id="fileStatus"></div>
 
     <div class="or-divider">or check a single name</div>
 
     <div class="single-name-form">
       <div class="field">
-        <label for="singleFirst">First Name</label>
+        <label for="singleFirst">First name</label>
         <input type="text" id="singleFirst" autocomplete="off" placeholder="e.g. Jane">
       </div>
       <div class="field">
-        <label for="singleLast">Last Name</label>
+        <label for="singleLast">Last name</label>
         <input type="text" id="singleLast" autocomplete="off" placeholder="e.g. Smith">
       </div>
       <button class="btn btn-outline" id="singleBtn" type="button">Use this name</button>
     </div>
     <div class="file-status" id="singleStatus"></div>
-
-    <div class="data-notice">
-      &#128274; <strong>Data handling:</strong> Employee names are processed locally in your browser.
-      No data is transmitted to any server or stored anywhere.
-    </div>
   </div>
 
   <!-- ── Step 2: Run check ──────────────────────────────────── -->
   <div class="card">
-    <div class="step-label">Step 2</div>
-    <h2>Run Compliance Check</h2>
-    <p style="font-size:.88rem;color:var(--grey-dark);margin-bottom:12px">
-      Checks employee names against locally cached register data.
-      Registers are updated automatically each day via GitHub Actions.
-    </p>
-    <div class="register-dates" id="registerDates">Register data last updated: loading…</div>
+    <div class="card-head">
+      <div class="step-num">2</div>
+      <div>
+        <h2>Run compliance check</h2>
+        <div class="card-sub">Names are compared against both registers</div>
+      </div>
+    </div>
+    <div class="register-dates" id="registerDates"><span class="dot"></span><span id="registerDatesText">Register data last updated: loading…</span></div>
     <button class="btn btn-primary" id="runBtn" disabled>Run Check</button>
     <div class="status-msg" id="statusMsg"></div>
   </div>
 
   <!-- ── Step 3: Results ────────────────────────────────────── -->
   <div class="card" id="resultsCard" style="display:none">
-    <div class="step-label">Step 3</div>
-    <h2>Review Results</h2>
+    <div class="card-head">
+      <div class="step-num">3</div>
+      <div>
+        <h2>Review results</h2>
+        <div class="card-sub">Verify every flagged match before acting on it</div>
+      </div>
+    </div>
 
     <div class="audit-bar" id="auditBar"></div>
 
@@ -421,8 +516,9 @@
     <div id="clearSection"></div>
 
     <div class="disclaimer">
-      &#9888;&#65039; All flagged results require manual verification before any employment action is taken.
-      This tool does not replace formal compliance processes.
+      <span>&#9888;&#65039;</span>
+      <span><strong>All flagged results require manual verification</strong> before any employment
+      action is taken. This tool does not replace formal compliance processes.</span>
     </div>
 
     <div class="action-row">
@@ -434,20 +530,25 @@
 </main>
 
 <footer>
-  Data sources:
-  <a href="https://www.agedcarequality.gov.au/providers/compliance-enforcement/banning-orders"
-    target="_blank" rel="noopener">ACQSC Banning Register</a>
-  &nbsp;&bull;&nbsp;
-  <a href="https://www.ndiscommission.gov.au/about-us/compliance-and-enforcement/compliance-actions"
-    target="_blank" rel="noopener">NDIS Commission Register</a>
-  &nbsp;&bull;&nbsp; For compliance use by Dovida People &amp; Culture only
-  &nbsp;&bull;&nbsp; All processing occurs client-side in your browser
+  <div class="footer-privacy">&#128274; All checks run entirely in your browser &mdash; employee details are never uploaded or stored.</div>
+  <div>
+    Data sources:
+    <a href="https://www.agedcarequality.gov.au/providers/compliance-enforcement/banning-orders"
+      target="_blank" rel="noopener">ACQSC Banning Register</a>
+    &nbsp;&bull;&nbsp;
+    <a href="https://www.ndiscommission.gov.au/about-us/compliance-and-enforcement/compliance-actions"
+      target="_blank" rel="noopener">NDIS Commission Register</a>
+    &nbsp;&bull;&nbsp; For use by Dovida People &amp; Culture
+  </div>
 </footer>
 
 <script>
 // ─── Configuration ────────────────────────────────────────────────────────────
 const ACQSC_CSV = './aged-care-register.csv';
 const NDIS_CSV  = './ndis-register.csv';
+
+// Matching + register normalisation logic is shared with the test suite — see matcher.js
+const { normaliseAcqscRow, normaliseNdisRow, matchEmployee } = BanMatcher;
 
 // ─── Application state ────────────────────────────────────────────────────────
 let employees    = [];   // { location, firstName, lastName, fullName }
@@ -633,7 +734,7 @@ function loadSingleName() {
   // Switching to a single name clears any uploaded file
   fileInput.value = '';
   uploadArea.classList.remove('loaded');
-  fileStatus.textContent = 'No file selected.';
+  fileStatus.textContent = '';
   fileStatus.className    = 'file-status';
 
   singleStatus.textContent = `✓ Ready to check “${employees[0].fullName}”`;
@@ -730,112 +831,6 @@ function parseCsv(text, label) {
     throw new Error(`${label} register CSV contained no data rows`);
   }
   return result;
-}
-
-// ─── ACQSC register normalisation ────────────────────────────────────────────
-
-function normaliseAcqscRow(row) {
-  const v = k => (row[k] || '').trim();
-  const first  = v('First name');
-  const middle = v('Middle Name');
-  const last   = v('Surname');
-  const nameParts = [first, middle, last].filter(Boolean);
-  return {
-    name:      nameParts.join(' '),
-    suburb:    v('Suburb'),
-    state:     v('State'),
-    postcode:  v('Postcode'),
-    orderDate: v('Ban Start Date'),
-    orderType: v('Status'),
-    reason:    v('Description'),
-    isBanning: true   // the ACQSC register is exclusively banning orders
-  };
-}
-
-// ─── NDIS register normalisation ─────────────────────────────────────────────
-// Every row in the NDIS export is checked, regardless of compliance action
-// type (banning orders, compliance notices, revocations, suspensions, etc.),
-// expiry date, or whether the name belongs to an individual or organisation.
-
-function normaliseNdisRow(row) {
-  const v = k => (row[k] || '').trim();
-  const type = v('Type');
-  return {
-    name:      v('Name'),
-    suburb:    v('City'),
-    state:     v('State'),
-    postcode:  v('Postcode'),
-    orderDate: v('Date effective from'),
-    orderType: type,
-    reason:    v('Relevant information'),
-    endDate:   v('Date no longer in force'),
-    isBanning: type.toLowerCase().includes('banning order')
-  };
-}
-
-// ─── Matching logic ───────────────────────────────────────────────────────────
-
-// Lowercase, strip punctuation except apostrophes, collapse whitespace.
-function normName(s) {
-  return (s || '')
-    .toLowerCase()
-    .replace(/[^\w\s']/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function tokenise(s) {
-  return normName(s).split(' ').filter(Boolean);
-}
-
-function matchEmployee(emp, registerRows) {
-  const empFirst   = normName(emp.firstName);
-  const empLast    = normName(emp.lastName);
-  const empInitial = empFirst[0] || '';
-
-  if (!empLast) return [];
-
-  const hits = [];
-
-  for (const entry of registerRows) {
-    if (!entry.name) continue;
-
-    // Strip parenthetical alternative names: "Lynette Peters (Morgan)" → "Lynette Peters"
-    const cleanName = entry.name.replace(/\s*\([^)]*\)\s*/g, ' ').trim();
-    const tokens    = tokenise(cleanName);
-    if (tokens.length < 2) continue;
-
-    const regLast   = tokens[tokens.length - 1];
-    const regFirst  = tokens[0];
-    const regMiddle = tokens.slice(1, -1);
-
-    if (regLast !== empLast) continue;
-
-    let score = 0;
-
-    if (regFirst === empFirst) {
-      score = 1.0;
-    } else if (empInitial && regFirst[0] === empInitial) {
-      score = 0.75;
-    } else {
-      for (const mid of regMiddle) {
-        if (mid === empFirst) { score = 0.65; break; }
-        if (empInitial && mid[0] === empInitial) { score = 0.65; break; }
-      }
-    }
-
-    if (score >= 0.65) hits.push({ entry, score });
-  }
-
-  // Deduplicate by name+suburb, keep highest score
-  const seen = new Map();
-  for (const h of hits) {
-    const key = h.entry.name + '\x00' + h.entry.suburb;
-    const ex  = seen.get(key);
-    if (!ex || ex.score < h.score) seen.set(key, h);
-  }
-
-  return [...seen.values()].sort((a, b) => b.score - a.score);
 }
 
 // ─── Result rendering ─────────────────────────────────────────────────────────
@@ -956,12 +951,17 @@ function renderFlagged(r) {
   </details>`;
 }
 
+const SCORE_LABELS = {
+  full:    'Full name match',
+  initial: 'Initial match',
+  variant: 'Name variant',
+  surname: 'Surname match'
+};
+
 function renderMatchCard(m, empId, reg, idx) {
   const e    = m.entry;
   const high = isHighSeverity(m);
-  const scoreLabel =
-    m.score >= 1.0  ? 'Full name match'    :
-    m.score >= 0.75 ? 'Initial name match' : 'Name variant';
+  const scoreLabel = SCORE_LABELS[m.matchType] || 'Possible match';
 
   // Only partial / non-banning (soft) matches can be dismissed
   const dismissHtml = high ? '' :
@@ -1187,6 +1187,10 @@ function showStatus(msg, isError) {
   statusMsg.className   = 'status-msg ' + (isError ? 'error' : 'info');
 }
 
+function hideStatus() {
+  statusMsg.className = 'status-msg';
+}
+
 // ─── Register last-updated dates ──────────────────────────────────────────────
 
 async function getLastModified(url) {
@@ -1200,7 +1204,7 @@ async function getLastModified(url) {
 }
 
 async function loadRegisterDates() {
-  const el = document.getElementById('registerDates');
+  const el = document.getElementById('registerDatesText');
   if (!el) return;
   const [acqscDate, ndisDate] = await Promise.all([
     getLastModified(ACQSC_CSV),
@@ -1214,10 +1218,6 @@ async function loadRegisterDates() {
 }
 
 loadRegisterDates();
-
-function hideStatus() {
-  statusMsg.className = 'status-msg';
-}
 </script>
 </body>
 </html>

@@ -15,7 +15,7 @@ A browser-based compliance tool for Dovida's People & Culture team. Checks emplo
 ## How to use it
 
 1. Go to **https://dovida-stuff.github.io/bancheck/**
-2. Either upload your employee CSV or Excel file, or type a single person's **First Name** and **Last Name** and click **Use this name**
+2. Either upload your employee CSV or Excel file, or type a single person's **First Name** and **Last Name** and click **Use this name** (first name is optional — a surname-only search flags all surname matches for review)
 3. Click **Run Check**
 4. Review flagged results and download/email the report
 
@@ -30,7 +30,10 @@ The register CSVs are stored in this repository and served as static files by Gi
 | `aged-care-register.csv` | ACQSC Aged Care Banning Register |
 | `ndis-register.csv` | NDIS Commission Banning Register |
 
-A GitHub Actions workflow automatically refreshes both files **daily at 11am AEST**.
+A GitHub Actions workflow automatically refreshes both files **daily at 11am AEST**. Files are
+normalised to UTF-8 during the update (the ACQSC source sometimes serves Windows-1252, which
+would otherwise corrupt names like *D'Aguilar* when the browser reads them). A day without a
+new commit just means the source data didn't change — the workflow still ran.
 
 ## How to manually trigger a register update
 
@@ -53,15 +56,40 @@ If the scheduled or manual workflow run fails:
 
 ## Matching logic
 
-Names are compared using normalised fuzzy matching:
+Matching lives in `matcher.js` (shared between the page and the test suite). Names are
+normalised before comparison: case, accents (é→e), apostrophes (O'Brien = OBrien = O'Brien),
+hyphens and other punctuation are all ignored, so hyphenated and multi-word surnames
+(`LEDDINGTON-HILL`, `VAN ROOYEN`, `AL SHAMARE`) match however the employee's name is written.
 
-| Score | Meaning |
+Register entries are parsed into every plausible interpretation of the name, covering the
+formats that actually appear in the registers:
+
+- `Simon James NUGUS` — given names first
+- `TANTS, Jacob Alfred` — surname first
+- `Kayla Pethybridge trading as J & K Loyalty...` — business suffix (ignored)
+- `Ahmed JAMA, also known as Faysal MUKETAR` — aliases (both names are matched)
+- `HORTON (also known as Scott ... HORTON)` — parenthetical aliases
+
+Match tiers:
+
+| Tier | Meaning |
 |-------|---------|
-| 1.0 — Full name match | First and last name both match exactly |
-| 0.75 — Initial match | Last name matches; first name initial matches |
-| 0.65 — Name variant | Last name matches; employee first name matches a middle name on the register |
+| Full name match | Surname and first name both match |
+| Initial match | Surname matches; first-name initial matches |
+| Name variant | Surname matches; employee first name matches a middle name on the register |
+| Surname match | Surname matches; no first name available to compare (e.g. surname-only search) |
 
-All matches ≥ 0.65 are flagged for manual review. **Flagged results must be verified before any employment action is taken.**
+Every tier is flagged for manual review. **Flagged results must be verified before any employment action is taken.**
+
+### Tests
+
+`test/match.test.mjs` runs the real `matcher.js` against the real register CSVs — every
+person on the ACQSC register must fully match their own entry, plus targeted checks for each
+NDIS name format. Run with:
+
+```
+node test/match.test.mjs
+```
 
 ### Flag colours
 
