@@ -4,7 +4,7 @@ A browser-based compliance tool for Dovida's People & Culture team. Checks emplo
 
 ## What it does
 
-- Upload a staff list (CSV or Excel) with `Location`, `First Name`, and `Last Name` columns — **or** check a single person by typing their first and last name
+- Upload a staff list (CSV or Excel) with `Location`, `First Name`, and `Last Name` columns (an optional `Middle Name` column is used too, if present) — **or** check a single person by typing their name
 - The tool checks each name against:
   - **ACQSC Aged Care Banning Register** — issued under the Aged Care Act
   - **NDIS Commission Banning Register** — every entry in the export, including all compliance action types (banning orders, compliance notices, revocations, suspensions, etc.), expired orders, and organisations
@@ -80,6 +80,14 @@ Match tiers:
 | Surname match | Surname matches; no first name available to compare (e.g. surname-only search) |
 
 Every tier is flagged for manual review. **Flagged results must be verified before any employment action is taken.**
+
+### Middle names
+
+A middle name can optionally be provided (single-name form field, or a `Middle Name` column in
+the uploaded file). It is **confirm-only**: when it matches a middle name on the register entry,
+the match card shows "✓ Middle name also matches" as extra corroboration for the reviewer. A
+missing or different middle name never downgrades or hides a match — the registers record middle
+names inconsistently, so absence of a middle-name match is not evidence the person is clear.
 
 ### Tests
 
