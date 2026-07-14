@@ -9,15 +9,15 @@ A browser-based compliance tool for Dovida's People & Culture team. Checks emplo
   - **ACQSC Aged Care Banning Register** — issued under the Aged Care Act
   - **NDIS Commission Banning Register** — every entry in the export, including all compliance action types (banning orders, compliance notices, revocations, suspensions, etc.), expired orders, and organisations
 - Produces a colour-coded results page showing flagged employees and match details
-- Flagged employees can be exported as CSV or emailed as a report
+- Results can be exported as a CSV report
 - All processing happens in the browser — no employee data is transmitted to any server
 
 ## How to use it
 
 1. Go to **https://dovida-stuff.github.io/bancheck/**
-2. Either upload your employee CSV or Excel file, or type a single person's **First Name** and **Last Name** and click **Use this name** (first name is optional — a surname-only search flags all surname matches for review)
+2. Either upload your employee CSV or Excel file, or type a single person's **First Name** and **Last Name** (first name is optional — a surname-only search flags all surname matches for review)
 3. Click **Run Check**
-4. Review flagged results and download/email the report
+4. Review flagged results and download the CSV report
 
 The **"Register data last updated"** date shown on the page tells you how current the data is.
 

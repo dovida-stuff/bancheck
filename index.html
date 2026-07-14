@@ -479,7 +479,6 @@
         <label for="singleLast">Last name</label>
         <input type="text" id="singleLast" autocomplete="off" placeholder="e.g. Smith">
       </div>
-      <button class="btn btn-outline" id="singleBtn" type="button">Use this name</button>
     </div>
     <div class="file-status" id="singleStatus"></div>
   </div>
@@ -522,8 +521,7 @@
     </div>
 
     <div class="action-row">
-      <button class="btn btn-primary" id="emailBtn">&#9993; Email Report</button>
-      <button class="btn btn-outline" id="downloadBtn">&#8595; Download CSV</button>
+      <button class="btn btn-primary" id="downloadBtn">&#8595; Download CSV</button>
     </div>
   </div>
 
@@ -552,6 +550,7 @@ const { normaliseAcqscRow, normaliseNdisRow, matchEmployee } = BanMatcher;
 
 // ─── Application state ────────────────────────────────────────────────────────
 let employees    = [];   // { location, firstName, lastName, fullName }
+let fileLoaded   = false; // true when employees came from an uploaded file
 let acqscRows    = [];   // normalised ACQSC register entries
 let ndisRows     = [];   // normalised NDIS entries (all action types, incl. expired & orgs)
 let results      = [];   // { employee, acqscMatches, ndisMatches }
@@ -565,7 +564,6 @@ const fileInput      = document.getElementById('fileInput');
 const fileStatus     = document.getElementById('fileStatus');
 const singleFirst    = document.getElementById('singleFirst');
 const singleLast     = document.getElementById('singleLast');
-const singleBtn      = document.getElementById('singleBtn');
 const singleStatus   = document.getElementById('singleStatus');
 const runBtn         = document.getElementById('runBtn');
 const statusMsg      = document.getElementById('statusMsg');
@@ -574,7 +572,6 @@ const auditBar       = document.getElementById('auditBar');
 const statsGrid      = document.getElementById('statsGrid');
 const flaggedSection = document.getElementById('flaggedSection');
 const clearSection   = document.getElementById('clearSection');
-const emailBtn       = document.getElementById('emailBtn');
 const downloadBtn    = document.getElementById('downloadBtn');
 
 // ─── Security: clear all data on page unload ──────────────────────────────────
@@ -690,6 +687,7 @@ function loadEmployees(rows, filename) {
   }
 
   // Switching to a file clears any single-name entry
+  fileLoaded = true;
   singleFirst.value = '';
   singleLast.value  = '';
   singleStatus.textContent = '';
@@ -703,17 +701,35 @@ function loadEmployees(rows, filename) {
 }
 
 function setFileError(msg) {
+  fileLoaded = false;
   fileStatus.textContent = msg;
   fileStatus.className   = 'file-status err';
   runBtn.disabled = true;
 }
 
 // ─── Single-name entry ────────────────────────────────────────────────────────
-singleBtn.addEventListener('click', loadSingleName);
-[singleFirst, singleLast].forEach(input =>
-  input.addEventListener('keydown', e => { if (e.key === 'Enter') loadSingleName(); })
-);
+// No separate "use this name" step: Run Check picks up whatever is typed here.
+// Typing a name discards any uploaded file (and uploading a file clears these
+// fields), so exactly one source of names is ever active.
+[singleFirst, singleLast].forEach(input => {
+  input.addEventListener('input', () => {
+    if (fileLoaded && (singleFirst.value.trim() || singleLast.value.trim())) {
+      fileLoaded = false;
+      employees  = [];
+      fileInput.value = '';
+      uploadArea.classList.remove('loaded');
+      fileStatus.textContent = '';
+      fileStatus.className    = 'file-status';
+    }
+    singleStatus.textContent = '';
+    singleStatus.className    = 'file-status';
+    runBtn.disabled = !fileLoaded && !strip(singleLast.value);
+  });
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') runCheck(); });
+});
 
+// Builds the employee list from the name fields. Returns false (with an
+// inline message) if no usable name has been entered.
 function loadSingleName() {
   const fn = strip(singleFirst.value);
   const ln = strip(singleLast.value);
@@ -721,7 +737,7 @@ function loadSingleName() {
   if (!ln) {
     singleStatus.textContent = 'Please enter at least a last name to check.';
     singleStatus.className    = 'file-status err';
-    return;
+    return false;
   }
 
   employees = [{
@@ -730,23 +746,16 @@ function loadSingleName() {
     lastName:  ln,
     fullName:  [fn, ln].filter(Boolean).join(' ')
   }];
-
-  // Switching to a single name clears any uploaded file
-  fileInput.value = '';
-  uploadArea.classList.remove('loaded');
-  fileStatus.textContent = '';
-  fileStatus.className    = 'file-status';
-
-  singleStatus.textContent = `✓ Ready to check “${employees[0].fullName}”`;
-  singleStatus.className    = 'file-status ok';
-  runBtn.disabled = false;
-  hideStatus();
+  return true;
 }
 
 // ─── Run check ────────────────────────────────────────────────────────────────
 runBtn.addEventListener('click', runCheck);
 
 async function runCheck() {
+  // Name fields are the active source unless a file is loaded
+  if (!fileLoaded && !loadSingleName()) return;
+
   runBtn.disabled = true;
   runBtn.innerHTML = '<span class="spinner"></span> Loading registers…';
   showStatus('Loading ACQSC and NDIS register data…', false);
@@ -1006,73 +1015,6 @@ flaggedSection.addEventListener('click', e => {
   const arr = btn.dataset.reg === 'acqsc' ? r.acqscMatches : r.ndisMatches;
   arr.splice(+btn.dataset.idx, 1);
   renderResults();
-});
-
-// ─── Email report ─────────────────────────────────────────────────────────────
-emailBtn.addEventListener('click', () => {
-  const flagged = results.filter(r => r.acqscMatches.length > 0 || r.ndisMatches.length > 0);
-  const clear   = results.filter(r => r.acqscMatches.length === 0 && r.ndisMatches.length === 0);
-  const today   = dateLong(runAt);
-  const HR_LONG  = '━'.repeat(34);
-  const HR_SHORT = '━'.repeat(14);
-
-  const subject = `Banning Register Check — ${today}`;
-
-  let body = '';
-  body += 'BANNING REGISTER COMPLIANCE CHECK\n';
-  body += HR_LONG + '\n\n';
-  body += `Check date:        ${today}\n`;
-  body += `Employees checked: ${employees.length}\n`;
-  body += `Aged Care entries: ${acqscRows.length}\n`;
-  body += `NDIS entries:      ${ndisRows.length}\n\n`;
-
-  body += 'RESULT SUMMARY\n';
-  body += HR_SHORT + '\n';
-  body += `⚠ Flagged for review:  ${flagged.length}\n`;
-  body += `✓ No match found:      ${clear.length}\n\n`;
-
-  body += HR_LONG + '\n';
-  body += 'FLAGGED EMPLOYEES — REVIEW REQUIRED\n';
-  body += HR_LONG + '\n\n';
-
-  if (flagged.length === 0) {
-    body += '✓ No matches found across all employees checked.\n\n';
-  } else {
-    flagged.forEach((r, i) => {
-      const hasA = r.acqscMatches.length > 0;
-      const hasN = r.ndisMatches.length  > 0;
-      const reg  = hasA && hasN ? 'Both' : hasA ? 'Aged Care' : 'NDIS';
-
-      body += `${i + 1}. ${r.employee.fullName.toUpperCase()}\n`;
-      body += `   Office:       ${r.employee.location}\n`;
-      body += `   Register:     ${reg}\n`;
-
-      const allMatches = [...r.acqscMatches, ...r.ndisMatches];
-      allMatches.forEach(m => {
-        const e   = m.entry;
-        const loc = [e.suburb, e.state].filter(s => s && s.trim()).join(', ');
-        body += `   Matched name: ${e.name}\n`;
-        body += `   Location:     ${loc}\n`;
-        body += `   Order type:   ${e.orderType || ''}\n`;
-        body += `   Order ends:   ${fmtOrderEnd(e.endDate)}\n`;
-      });
-      body += '\n';
-    });
-  }
-
-  body += HR_LONG + '\n';
-  body += 'DISCLAIMER\n';
-  body += HR_LONG + '\n';
-  body += 'All flagged results require manual\n';
-  body += 'verification before any employment\n';
-  body += 'action is taken. This tool does not\n';
-  body += 'replace formal compliance processes.\n\n';
-  body += 'Full results available in the\n';
-  body += 'downloaded CSV report.\n';
-
-  window.location.href =
-    'mailto:?subject=' + encodeURIComponent(subject) +
-    '&body='           + encodeURIComponent(body);
 });
 
 // ─── CSV download ─────────────────────────────────────────────────────────────
