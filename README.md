@@ -10,6 +10,7 @@ A browser-based compliance tool for Dovida's People & Culture team. Checks emplo
   - **NDIS Commission Banning Register** — every entry in the export, including all compliance action types (banning orders, compliance notices, revocations, suspensions, etc.), expired orders, and organisations
 - Produces a colour-coded results page showing flagged employees and match details
 - Results can be exported as a CSV report
+- Each register can be downloaded from the page, so any result can be verified by hand against the exact file the checker used
 - All processing happens in the browser — no employee data is transmitted to any server
 
 ## How to use it
@@ -19,7 +20,36 @@ A browser-based compliance tool for Dovida's People & Culture team. Checks emplo
 3. Click **Run Check**
 4. Review flagged results and download the CSV report
 
-The **"Register data last updated"** date shown on the page tells you how current the data is.
+The **Register data** panel in Step 2 shows, for each register, when the published file last
+changed, when its source was last successfully checked, how many entries it holds, and its
+SHA-256 hash. If either source has not been successfully checked for more than 3 days the panel
+turns amber with a warning — that is the signal that the automatic update has stopped and needs
+attention (see *What to do if the Action fails*).
+
+### Verifying a result by hand
+
+1. In Step 2, click **Download CSV** next to the register that produced the match (the file is
+   named with the date its content last changed, e.g. `acqsc-aged-care-banning-register_2026-09-03.csv`)
+2. Open it in Excel and search for the surname — the row the checker matched will be there
+3. To prove the download is the same file the checker used, hash it and compare with the
+   SHA-256 shown on the page. In PowerShell: `Get-FileHash .\<file>.csv -Algorithm SHA256`;
+   on a Mac: `shasum -a 256 <file>.csv`
+4. For the official record, the **Official source** link next to each register goes to the
+   government page the file is downloaded from, and **Version history** shows every version
+   of the file this tool has ever used, with the date each was committed
+
+### The CSV report
+
+The downloaded report has one row per employee:
+
+| Column | Meaning |
+|--------|---------|
+| Check Date | When the check was run |
+| Date of Aged Care Banning Register File / Date of NDIS Compliance Export File | The date the published register file last **changed** (not the time it was downloaded) — i.e. which version of each register the check was run against |
+| Next check required date | Check Date + 3 months |
+| Banned/Not Banned | `Banned` only when a **full name** matched a **banning order**; `Possible match - verify` when the only matches were partial (initial / variant / surname) or against a non-banning action; `Not Banned` when nothing matched (or every partial match was dismissed) |
+| Match details | Every match, with the register, the entry name as it appears on the register, the match tier, the order type and location — enough to find the entry in the downloaded CSV |
+| Reason if banned | The register's own description text for each matched entry |
 
 ## How the register data works
 
@@ -28,12 +58,30 @@ The register CSVs are stored in this repository and served as static files by Gi
 | File | Source |
 |------|--------|
 | `aged-care-register.csv` | ACQSC Aged Care Banning Register |
-| `ndis-register.csv` | NDIS Commission Banning Register |
+| `ndis-register.csv` | NDIS Commission Banning Register (the full compliance-actions export) |
+| `register-meta.json` | Written by the workflow: row count, SHA-256, last-changed and last-checked timestamps for each file |
 
-A GitHub Actions workflow automatically refreshes both files **daily at 11am AEST**. Files are
-normalised to UTF-8 during the update (the ACQSC source sometimes serves Windows-1252, which
-would otherwise corrupt names like *D'Aguilar* when the browser reads them). A day without a
-new commit just means the source data didn't change — the workflow still ran.
+A GitHub Actions workflow (`.github/workflows/update-registers.yml`) refreshes both files
+**twice a day** — scheduled for 11am and 6am AEST. GitHub runs scheduled workflows on a
+best-effort basis and the 11am slot has in practice started anywhere between noon and 10pm
+AEST, which is why there are two slots. Every run:
+
+1. Downloads each register directly from the government site with a browser-like request
+   (a ScrapingBee proxy fallback exists but has not been needed since May 2026)
+2. **Validates** the download before it can replace the published file: it must not be an
+   HTML/JSON error page, must have the header columns the checker relies on (`First name` /
+   `Surname`, `Type` / `Name`), and must not have shrunk by more than 20% against the current
+   file (so a truncated export can never replace a complete one). A download that fails
+   validation is discarded and the last good file stays published
+3. Normalises the file to UTF-8 (the ACQSC source sometimes serves Windows-1252, which
+   would otherwise corrupt names like *D'Aguilar* when the browser reads them)
+4. Regenerates `register-meta.json` and runs the matcher test suite against the new data
+5. Commits whatever changed. A run that found no new data still commits the metadata, so the
+   page can show "checked <today>" — and so a gap in the commit history means the workflow
+   did not run, not merely that the data was unchanged
+
+If any fetch fails, or the tests fail on the new data, the run is marked **failed** (GitHub
+emails the repository owner) but whatever did download successfully is still published.
 
 ## How to manually trigger a register update
 
@@ -53,6 +101,17 @@ If the scheduled or manual workflow run fails:
    - **ACQSC:** Visit https://www.agedcarequality.gov.au/providers/compliance-enforcement/banning-orders and find the CSV download link
    - **NDIS:** Visit https://www.ndiscommission.gov.au/about-us/compliance-and-enforcement/compliance-actions/search and find the CSV download link
 4. Update the URL in `.github/workflows/update-registers.yml` and re-run the workflow
+5. If a source has changed its column names, also update `requiredColumns` in
+   `scripts/register-meta.mjs` and the `HEADER_MUST_MATCH` pattern in the workflow, then
+   check `matcher.js` still reads the right columns (`normaliseAcqscRow` / `normaliseNdisRow`)
+
+If the register files were ever replaced by hand, run `node scripts/register-meta.mjs` and
+commit `register-meta.json` with them — the tests fail if the metadata does not describe the
+committed files.
+
+Note that the checker page itself keeps working from the last published files whatever happens
+to the workflow; the amber warning in the Register data panel is how users find out the data is
+no longer current.
 
 ## Matching logic
 
@@ -93,11 +152,15 @@ names inconsistently, so absence of a middle-name match is not evidence the pers
 
 `test/match.test.mjs` runs the real `matcher.js` against the real register CSVs — every
 person on the ACQSC register must fully match their own entry, plus targeted checks for each
-NDIS name format. Run with:
+NDIS name format, the severity / export-status rules, and that `register-meta.json` matches
+the committed files. Run with:
 
 ```
 node test/match.test.mjs
 ```
+
+The suite also runs in GitHub Actions on every push (`.github/workflows/test.yml`) and inside
+the daily update workflow against the freshly downloaded data.
 
 ### Flag colours
 
@@ -109,6 +172,11 @@ Flagged results are colour-coded by how serious the match is:
 | 🔵 Blue | A **partial name match** (initial or variant), or a match against a **non-banning compliance action** (compliance notice, revocation, suspension, etc.) — lower confidence, still review |
 
 Blue is not "safe" — every flagged result still requires manual verification. The colour only indicates relative confidence.
+
+Note that "banning order" here means the register **entry type**, not whether the order is
+still current: an ACQSC entry whose status is *No longer in force*, or an NDIS banning order
+with a *Date no longer in force*, still shows red on a full name match. The end date is shown
+on the match card and in the report's *Match details* column so the reviewer can see it.
 
 ### Dismissing partial matches
 

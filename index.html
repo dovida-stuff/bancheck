@@ -8,7 +8,11 @@
                2. NDIS Quality & Safeguards Commission Banning Register
   Registers: Stored as static CSVs in this repo, updated daily by GitHub Actions.
     aged-care-register.csv  — ACQSC banning orders
-    ndis-register.csv       — NDIS Commission banning orders
+    ndis-register.csv       — NDIS Commission compliance actions (incl. banning orders)
+    register-meta.json      — provenance: row counts, SHA-256, last changed /
+                              last checked timestamps (written by the workflow)
+  Verify   : Each register can be downloaded from the page (Step 2) so a
+             flagged result can be checked by hand against the same file.
   Matching : Shared logic lives in matcher.js (also exercised by
              test/match.test.mjs against the real register files).
   Update : Registers are refreshed automatically every day.
@@ -237,24 +241,40 @@
     .btn-outline { background: var(--white); color: var(--brand); border: 1.5px solid var(--brand); padding: 10px 22px; }
     .btn-outline:hover { background: var(--brand-bg); }
 
-    /* ── Register freshness line ─────────────────────────────── */
-    .register-dates {
-      display: flex;
-      align-items: center;
-      gap: 8px;
+    /* ── Register data panel (freshness + downloads) ─────────── */
+    .register-panel {
       font-size: 0.82rem;
       color: var(--grey-dark);
       background: var(--page-bg);
       border: 1px solid var(--border);
       border-radius: var(--radius-sm);
-      padding: 9px 14px;
+      padding: 10px 14px 12px;
       margin-bottom: 16px;
     }
-    .register-dates .dot {
+    .register-panel-head { display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--text); }
+    .register-panel .dot {
       width: 8px; height: 8px; border-radius: 50%;
       background: var(--success);
       flex-shrink: 0;
     }
+    .register-panel.stale .dot { background: #d97706; }
+    .register-panel.stale { background: var(--warn-bg); border-color: var(--warn-border); }
+    .register-panel .stale-msg { display: none; margin-top: 6px; color: var(--warn-text); font-weight: 600; }
+    .register-panel.stale .stale-msg { display: block; }
+    .reg-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+      padding: 9px 0 8px; border-top: 1px solid var(--border); margin-top: 8px;
+    }
+    .reg-row:first-of-type { margin-top: 10px; }
+    .reg-info { flex: 1; min-width: 220px; }
+    .reg-name { font-weight: 700; color: var(--text); }
+    .reg-meta { margin-top: 1px; line-height: 1.5; }
+    .reg-hash { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.72rem; word-break: break-all; opacity: 0.85; }
+    .reg-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .btn-small { padding: 7px 13px; font-size: 0.78rem; }
+    .reg-link { font-size: 0.78rem; color: var(--brand); font-weight: 600; text-decoration: none; white-space: nowrap; }
+    .reg-link:hover { text-decoration: underline; }
+    .reg-note { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 0.76rem; line-height: 1.55; }
 
     /* ── Status message ──────────────────────────────────────── */
     .status-msg { margin-top: 14px; padding: 11px 15px; border-radius: var(--radius-sm); font-size: 0.875rem; display: none; }
@@ -507,7 +527,42 @@
         <div class="card-sub">Names are compared against both registers</div>
       </div>
     </div>
-    <div class="register-dates" id="registerDates"><span class="dot"></span><span id="registerDatesText">Register data last updated: loading…</span></div>
+    <div class="register-panel" id="registerPanel">
+      <div class="register-panel-head"><span class="dot"></span><span id="registerDatesText">Register data: loading…</span></div>
+      <div class="stale-msg" id="staleMsg"></div>
+
+      <div class="reg-row" id="regRowAcqsc">
+        <div class="reg-info">
+          <div class="reg-name">ACQSC Aged Care Banning Register</div>
+          <div class="reg-meta" id="regMetaAcqsc">Loading details…</div>
+        </div>
+        <div class="reg-actions">
+          <a class="btn btn-outline btn-small" id="dlAcqsc" href="./aged-care-register.csv" download="aged-care-register.csv">&#8595; Download CSV</a>
+          <a class="reg-link" href="https://www.agedcarequality.gov.au/providers/compliance-enforcement/banning-orders" target="_blank" rel="noopener">Official source &#8599;</a>
+          <a class="reg-link" href="https://github.com/dovida-stuff/bancheck/commits/main/aged-care-register.csv" target="_blank" rel="noopener">Version history &#8599;</a>
+        </div>
+      </div>
+
+      <div class="reg-row" id="regRowNdis">
+        <div class="reg-info">
+          <div class="reg-name">NDIS Commission Register (all compliance actions)</div>
+          <div class="reg-meta" id="regMetaNdis">Loading details…</div>
+        </div>
+        <div class="reg-actions">
+          <a class="btn btn-outline btn-small" id="dlNdis" href="./ndis-register.csv" download="ndis-register.csv">&#8595; Download CSV</a>
+          <a class="reg-link" href="https://www.ndiscommission.gov.au/about-us/compliance-and-enforcement/compliance-actions/search" target="_blank" rel="noopener">Official source &#8599;</a>
+          <a class="reg-link" href="https://github.com/dovida-stuff/bancheck/commits/main/ndis-register.csv" target="_blank" rel="noopener">Version history &#8599;</a>
+        </div>
+      </div>
+
+      <div class="reg-note">
+        These downloads are the exact files the checker compares names against, so a flagged
+        result can be verified by hand (open the CSV and search for the name). The SHA-256
+        shown for each file lets you confirm a download is identical to what the checker used.
+        Each file is refreshed from its official source twice daily; "changed" is when the
+        content last differed, "checked" is when the source was last successfully downloaded.
+      </div>
+    </div>
     <button class="btn btn-primary" id="runBtn" disabled>Run Check</button>
     <div class="status-msg" id="statusMsg"></div>
   </div>
@@ -560,9 +615,12 @@
 // ─── Configuration ────────────────────────────────────────────────────────────
 const ACQSC_CSV = './aged-care-register.csv';
 const NDIS_CSV  = './ndis-register.csv';
+const META_JSON = './register-meta.json';   // written by the update workflow
+const STALE_AFTER_DAYS = 3;                 // warn if no successful update for this long
 
 // Matching + register normalisation logic is shared with the test suite — see matcher.js
-const { normaliseAcqscRow, normaliseNdisRow, matchEmployee } = BanMatcher;
+const { normaliseAcqscRow, normaliseNdisRow, matchEmployee,
+        isHighSeverity, summariseResult, MATCH_LABELS } = BanMatcher;
 
 // ─── Application state ────────────────────────────────────────────────────────
 let employees    = [];   // { location, firstName, lastName, fullName }
@@ -571,8 +629,9 @@ let acqscRows    = [];   // normalised ACQSC register entries
 let ndisRows     = [];   // normalised NDIS entries (all action types, incl. expired & orgs)
 let results      = [];   // { employee, acqscMatches, ndisMatches }
 let runAt        = null;
-let acqscFetchAt = null;
-let ndisFetchAt  = null;
+let acqscFileDate = null;  // date the published ACQSC file last changed (from register-meta.json,
+let ndisFileDate  = null;  // falling back to the HTTP Last-Modified header)
+let registerMeta  = null;  // parsed register-meta.json, or null if unavailable
 
 // ─── DOM ──────────────────────────────────────────────────────────────────────
 const uploadArea     = document.getElementById('uploadArea');
@@ -798,10 +857,8 @@ async function runCheck() {
   const acqsc = acqscResult.value;
   const ndis  = ndisResult.value;
 
-  acqscRows    = acqsc.rows;
-  acqscFetchAt = acqsc.fetchedAt;
-  ndisRows     = ndis.rows;
-  ndisFetchAt  = ndis.fetchedAt;
+  acqscRows = acqsc.rows;
+  ndisRows  = ndis.rows;
 
   showStatus(
     `Registers loaded — ${acqscRows.length} aged care entries, ` +
@@ -826,31 +883,25 @@ async function runCheck() {
 // ─── Register fetches ─────────────────────────────────────────────────────────
 
 async function fetchAcqsc() {
-  const resp = await fetch(ACQSC_CSV);
+  const resp = await fetch(ACQSC_CSV, { cache: 'no-cache' });
   if (resp.status === 404) {
     throw new Error('Register file not found. Please ensure aged-care-register.csv and ndis-register.csv are present in the repository.');
   }
   if (!resp.ok) throw new Error(`Could not load aged-care-register.csv (HTTP ${resp.status})`);
   const text = await resp.text();
   const { data } = parseCsv(text, 'ACQSC');
-  return {
-    rows:      data.map(normaliseAcqscRow).filter(r => r.name),
-    fetchedAt: new Date()
-  };
+  return { rows: data.map(normaliseAcqscRow).filter(r => r.name) };
 }
 
 async function fetchNdis() {
-  const resp = await fetch(NDIS_CSV);
+  const resp = await fetch(NDIS_CSV, { cache: 'no-cache' });
   if (resp.status === 404) {
     throw new Error('Register file not found. Please ensure aged-care-register.csv and ndis-register.csv are present in the repository.');
   }
   if (!resp.ok) throw new Error(`Could not load ndis-register.csv (HTTP ${resp.status})`);
   const text = await resp.text();
   const { data } = parseCsv(text, 'NDIS');
-  return {
-    rows:      data.map(normaliseNdisRow).filter(r => r.name),
-    fetchedAt: new Date()
-  };
+  return { rows: data.map(normaliseNdisRow).filter(r => r.name) };
 }
 
 function parseCsv(text, label) {
@@ -875,8 +926,10 @@ function renderResults() {
   auditBar.innerHTML =
     `<strong>Check run:</strong> ${dtStr(runAt)} &nbsp;&bull;&nbsp; ` +
     `<strong>Employees checked:</strong> ${employees.length} &nbsp;&bull;&nbsp; ` +
-    `<strong>Aged Care register:</strong> ${acqscRows.length} entries &nbsp;&bull;&nbsp; ` +
-    `<strong>NDIS register:</strong> ${ndisRows.length} entries`;
+    `<strong>Aged Care register:</strong> ${acqscRows.length} entries` +
+    (acqscFileDate ? ` (file dated ${dateLong(acqscFileDate)})` : '') + ` &nbsp;&bull;&nbsp; ` +
+    `<strong>NDIS register:</strong> ${ndisRows.length} entries` +
+    (ndisFileDate ? ` (file dated ${dateLong(ndisFileDate)})` : '');
 
   // Stats (5 tiles)
   statsGrid.innerHTML = [
@@ -942,12 +995,9 @@ function registerLabel(r) {
   return                          { text: 'NDIS Register', cls: 'badge-ndis' };
 }
 
-// A match is "high" severity (red) only when the name matches in full AND the
-// register entry is a banning order. Everything else — a partial name match, or
-// a non-banning compliance action — is "soft" severity (blue, less alarming).
-function isHighSeverity(m) {
-  return m.score >= 1.0 && m.entry.isBanning;
-}
+// Severity (red vs blue) is decided by BanMatcher.isHighSeverity, shared with
+// the CSV export and the test suite: red only for a full name match against a
+// banning order; everything else is "soft" (blue) and needs review.
 
 function renderFlagged(r) {
   const emp   = r.employee;
@@ -983,12 +1033,7 @@ function renderFlagged(r) {
   </details>`;
 }
 
-const SCORE_LABELS = {
-  full:    'Full name match',
-  initial: 'Initial match',
-  variant: 'Name variant',
-  surname: 'Surname match'
-};
+const SCORE_LABELS = MATCH_LABELS;
 
 function renderMatchCard(m, empId, reg, idx) {
   const e    = m.entry;
@@ -1045,8 +1090,10 @@ flaggedSection.addEventListener('click', e => {
 downloadBtn.addEventListener('click', () => {
   const checkDate  = dateStr(runAt);
   const nextDate   = dateStr(addMonths(runAt, 3));
-  const acqscFD    = acqscFetchAt ? dateStr(acqscFetchAt) : '';
-  const ndisFD     = ndisFetchAt  ? dateStr(ndisFetchAt)  : '';
+  // Register file dates are when each published file last changed — not when
+  // this browser downloaded it — so the report records which version was used.
+  const acqscFD    = acqscFileDate ? dateStr(acqscFileDate) : '';
+  const ndisFD     = ndisFileDate  ? dateStr(ndisFileDate)  : '';
 
   const headers = [
     'Check Date',
@@ -1057,24 +1104,24 @@ downloadBtn.addEventListener('click', () => {
     'Last Name',
     'Next check required date',
     'Banned/Not Banned',
+    'Match details',
     'Reason if banned'
   ];
 
   const rows = [headers];
 
   for (const r of results) {
-    const emp       = r.employee;
-    const isFlagged = r.acqscMatches.length > 0 || r.ndisMatches.length > 0;
-    const reason    = [
-      ...r.acqscMatches.map(m => m.entry.reason).filter(Boolean).map(x => `Aged Care: ${x}`),
-      ...r.ndisMatches.map(m => m.entry.reason).filter(Boolean).map(x => `NDIS: ${x}`)
-    ].join('; ');
+    const emp = r.employee;
+    // 'Banned' only for a full name match against a banning order; partial or
+    // non-banning matches export as 'Possible match - verify'.
+    const sum = summariseResult(r.acqscMatches, r.ndisMatches);
 
     rows.push([
       checkDate, acqscFD, ndisFD,
       emp.firstName, emp.middleName || '', emp.lastName, nextDate,
-      isFlagged ? 'Banned' : 'Not Banned',
-      reason
+      sum.status,
+      sum.details,
+      sum.reason
     ]);
   }
 
@@ -1158,11 +1205,16 @@ function hideStatus() {
   statusMsg.className = 'status-msg';
 }
 
-// ─── Register last-updated dates ──────────────────────────────────────────────
+// ─── Register provenance (register-meta.json) ─────────────────────────────────
+// The update workflow writes register-meta.json alongside the CSVs: row
+// counts, SHA-256 hashes, when each file last changed and when its source was
+// last checked. The panel in Step 2 shows this and offers the CSV downloads.
+// If the file is missing (e.g. an old deployment) we fall back to the HTTP
+// Last-Modified header so the page still shows a date.
 
 async function getLastModified(url) {
   try {
-    const resp = await fetch(url, { method: 'HEAD' });
+    const resp = await fetch(url, { method: 'HEAD', cache: 'no-cache' });
     const lm = resp.headers.get('Last-Modified');
     return lm ? new Date(lm) : null;
   } catch (_) {
@@ -1170,21 +1222,114 @@ async function getLastModified(url) {
   }
 }
 
-async function loadRegisterDates() {
-  const el = document.getElementById('registerDatesText');
-  if (!el) return;
-  const [acqscDate, ndisDate] = await Promise.all([
-    getLastModified(ACQSC_CSV),
-    getLastModified(NDIS_CSV)
-  ]);
-  const fmt = d => d
-    ? d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
-    : 'unknown';
-  el.textContent =
-    `Register data last updated: Aged Care ${fmt(acqscDate)} · NDIS ${fmt(ndisDate)}`;
+async function fetchRegisterMeta() {
+  try {
+    const resp = await fetch(META_JSON, { cache: 'no-cache' });
+    if (!resp.ok) return null;
+    const meta = await resp.json();
+    return meta && meta.registers ? meta : null;
+  } catch (_) {
+    return null;
+  }
 }
 
-loadRegisterDates();
+function parseDate(s) {
+  if (!s) return null;
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function daysAgo(d) {
+  return d ? Math.floor((Date.now() - d.getTime()) / 86400000) : null;
+}
+
+function renderRegisterRow(key, entry, fallbackDate) {
+  const metaEl = document.getElementById(key === 'acqsc' ? 'regMetaAcqsc' : 'regMetaNdis');
+  const dl     = document.getElementById(key === 'acqsc' ? 'dlAcqsc' : 'dlNdis');
+  if (!metaEl) return;
+
+  if (!entry) {
+    metaEl.textContent = fallbackDate
+      ? `Published ${dateLong(fallbackDate)} (details unavailable)`
+      : 'Details unavailable';
+    return;
+  }
+
+  const changed = parseDate(entry.changedAt);
+  const checked = parseDate(entry.checkedAt);
+  const failed  = entry.lastFetch && entry.lastFetch.outcome && entry.lastFetch.outcome !== 'success';
+  const parts = [
+    `${Number(entry.rows).toLocaleString('en-AU')} entries`,
+    changed ? `changed ${dateLong(changed)}` : '',
+    checked ? `checked ${dateLong(checked)}` : 'never successfully checked'
+  ].filter(Boolean);
+
+  metaEl.innerHTML =
+    esc(parts.join(' · ')) +
+    (failed ? ` <span style="color:var(--warn-text);font-weight:600">· last download attempt failed</span>` : '') +
+    (entry.sha256 ? `<div class="reg-hash" title="SHA-256 of the published file">SHA-256 ${esc(entry.sha256)}</div>` : '');
+
+  // Name the download by its content date so saved copies are self-describing.
+  if (dl && changed) {
+    const base = key === 'acqsc' ? 'acqsc-aged-care-banning-register' : 'ndis-commission-compliance-actions';
+    dl.setAttribute('download', `${base}_${fileDate(changed)}.csv`);
+  }
+}
+
+async function loadRegisterInfo() {
+  const headEl = document.getElementById('registerDatesText');
+  const panel  = document.getElementById('registerPanel');
+  const stale  = document.getElementById('staleMsg');
+  if (!headEl || !panel) return;
+
+  const meta = await fetchRegisterMeta();
+  registerMeta = meta;
+
+  let acqsc = meta && meta.registers.acqsc;
+  let ndis  = meta && meta.registers.ndis;
+
+  // Fallback dates from HTTP headers when the meta file is unavailable
+  let acqscLM = null, ndisLM = null;
+  if (!acqsc || !ndis) {
+    [acqscLM, ndisLM] = await Promise.all([getLastModified(ACQSC_CSV), getLastModified(NDIS_CSV)]);
+  }
+
+  acqscFileDate = (acqsc && parseDate(acqsc.changedAt)) || acqscLM;
+  ndisFileDate  = (ndis  && parseDate(ndis.changedAt))  || ndisLM;
+
+  renderRegisterRow('acqsc', acqsc, acqscLM);
+  renderRegisterRow('ndis',  ndis,  ndisLM);
+
+  const fmt = d => d ? dateLong(d) : 'unknown';
+  headEl.textContent =
+    `Register data last changed: Aged Care ${fmt(acqscFileDate)} · NDIS ${fmt(ndisFileDate)}`;
+
+  // Staleness: warn when either source has not been successfully checked
+  // recently, or when the most recent download attempt failed. This is the
+  // signal that the automatic update has stopped working.
+  const problems = [];
+  for (const [label, entry] of [['Aged Care', acqsc], ['NDIS', ndis]]) {
+    if (!entry) continue;
+    const checked = parseDate(entry.checkedAt);
+    const age = daysAgo(checked);
+    const failed = entry.lastFetch && entry.lastFetch.outcome && entry.lastFetch.outcome !== 'success';
+    if (age === null) problems.push(`${label}: never successfully updated`);
+    else if (age > STALE_AFTER_DAYS) problems.push(`${label}: last successful update was ${age} days ago`);
+    else if (failed) problems.push(`${label}: most recent download attempt failed`);
+  }
+  if (!meta) {
+    const newest = [acqscLM, ndisLM].filter(Boolean).sort((a, b) => b - a)[0];
+    const age = daysAgo(newest);
+    if (age !== null && age > STALE_AFTER_DAYS) problems.push(`Published files are ${age} days old`);
+  }
+  if (problems.length) {
+    panel.classList.add('stale');
+    stale.textContent = '⚠️ Register data may be out of date — ' + problems.join('; ') +
+      '. Check the "Update Banning Register CSVs" workflow in GitHub before relying on results.';
+  }
+}
+
+loadRegisterInfo();
 </script>
 </body>
 </html>

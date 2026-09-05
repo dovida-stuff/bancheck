@@ -217,12 +217,66 @@
     return Array.from(seen.values()).sort(function (a, b) { return b.score - a.score; });
   }
 
+  // ── Result classification (shared by the page and the CSV export) ─────────
+
+  // A match is "high" severity only when the name matches in full AND the
+  // register entry is a banning order. Everything else — a partial name
+  // match, or a non-banning compliance action — is "soft": still flagged for
+  // review, but not evidence that the person is banned.
+  function isHighSeverity(m) {
+    return m.score >= 1.0 && !!(m.entry && m.entry.isBanning);
+  }
+
+  var MATCH_LABELS = {
+    full: 'Full name match',
+    initial: 'Initial match',
+    variant: 'Name variant',
+    surname: 'Surname match'
+  };
+
+  var STATUS = {
+    banned: 'Banned',
+    review: 'Possible match - verify',
+    clear: 'Not Banned'
+  };
+
+  // Summarises one employee's result for the export:
+  //   status   'Banned' only when at least one match is high severity;
+  //            'Possible match - verify' when every match is soft;
+  //            'Not Banned' when there are no (remaining) matches.
+  //   details  one line per match naming the register, the entry, the match
+  //            tier and the order type, so a reviewer can find the entry.
+  function summariseResult(acqscMatches, ndisMatches) {
+    var all = [];
+    (acqscMatches || []).forEach(function (m) { all.push({ reg: 'Aged Care', m: m }); });
+    (ndisMatches || []).forEach(function (m) { all.push({ reg: 'NDIS', m: m }); });
+    var status = STATUS.clear;
+    if (all.length) status = all.some(function (x) { return isHighSeverity(x.m); }) ? STATUS.banned : STATUS.review;
+    var details = all.map(function (x) {
+      var e = x.m.entry || {};
+      var bits = [MATCH_LABELS[x.m.matchType] || 'Possible match'];
+      if (x.m.middleMatch) bits.push('middle name matches');
+      if (e.orderType) bits.push(e.orderType);
+      if (e.endDate) bits.push('ended ' + e.endDate);
+      if (e.suburb || e.state) bits.push([e.suburb, e.state].filter(Boolean).join(' '));
+      return x.reg + ': ' + e.name + ' (' + bits.join('; ') + ')';
+    }).join(' | ');
+    var reason = all.map(function (x) { return x.m.entry && x.m.entry.reason; })
+      .map(function (r, i) { return r ? all[i].reg + ': ' + r : ''; })
+      .filter(Boolean).join('; ');
+    return { status: status, details: details, reason: reason };
+  }
+
   return {
     normName: normName,
     tokenise: tokenise,
     buildNameCandidates: buildNameCandidates,
     normaliseAcqscRow: normaliseAcqscRow,
     normaliseNdisRow: normaliseNdisRow,
-    matchEmployee: matchEmployee
+    matchEmployee: matchEmployee,
+    isHighSeverity: isHighSeverity,
+    summariseResult: summariseResult,
+    MATCH_LABELS: MATCH_LABELS,
+    STATUS: STATUS
   };
 }));

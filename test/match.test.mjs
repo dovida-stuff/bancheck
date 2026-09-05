@@ -1,6 +1,7 @@
 // Tests for matcher.js against the real register CSVs.
 // Run with:  node test/match.test.mjs
 import { createRequire } from 'node:module';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -126,6 +127,46 @@ h = bestM('Bobbie', '', 'Albertella', acqsc);
 check('No middle name provided → no corroboration, same match', h && h.score >= 1.0 && h.middleMatch === false);
 h = bestM('Jacob', 'Alfred', 'Tants', ndis);
 check('Middle name corroborates NDIS "SURNAME, Given" entries', h && h.score >= 1.0 && h.middleMatch === true);
+
+// ── 6. Severity and export status (what the CSV report says) ───────────────
+const fullBan = M.matchEmployee({ firstName: 'Jacob', lastName: 'Tants' }, ndis)[0];
+check('Full match on an NDIS banning order is high severity', fullBan && M.isHighSeverity(fullBan));
+const initialOnly = M.matchEmployee({ firstName: 'J', lastName: 'Tants' }, ndis)[0];
+check('Initial-only match is not high severity', initialOnly && !M.isHighSeverity(initialOnly));
+
+let sum = M.summariseResult([], [fullBan]);
+check('Export status is Banned for a full banning-order match', sum.status === 'Banned', sum.status);
+check('Export details name the register entry and tier',
+  /^NDIS: .*TANTS.*\(Full name match/i.test(sum.details), sum.details);
+
+sum = M.summariseResult([], [initialOnly]);
+check('Export status is "Possible match - verify" for a partial match only',
+  sum.status === 'Possible match - verify', sum.status);
+
+sum = M.summariseResult([], []);
+check('Export status is Not Banned with no matches', sum.status === 'Not Banned' && sum.details === '');
+
+// A full name match against a non-banning NDIS action (e.g. a compliance
+// notice) must not be reported as Banned.
+const nonBan = ndis.find(r => !r.isBanning && r.nameCandidates.some(c => c.given.length >= 1 && c.surnameKey));
+if (nonBan) {
+  const cand = nonBan.nameCandidates.find(c => c.given.length >= 1 && c.surnameKey);
+  const hits = M.matchEmployee({ firstName: cand.given[0], lastName: cand.surnameKey }, [nonBan]);
+  const s2 = M.summariseResult([], hits);
+  check(`Full match on non-banning action (${nonBan.orderType}) exports as verify, not Banned`,
+    hits.length && hits[0].score >= 1.0 && s2.status === 'Possible match - verify', s2.status);
+}
+
+// ── 7. register-meta.json must describe the committed CSVs ─────────────────
+const meta = JSON.parse(readFileSync(join(root, 'register-meta.json'), 'utf8'));
+for (const [key, file, rows] of [['acqsc', 'aged-care-register.csv', acqscRaw.length], ['ndis', 'ndis-register.csv', ndisRaw.length]]) {
+  const m = meta.registers[key];
+  const sha = createHash('sha256').update(readFileSync(join(root, file))).digest('hex');
+  check(`register-meta.json ${key}.sha256 matches ${file}`, m && m.sha256 === sha,
+    'run: node scripts/register-meta.mjs');
+  check(`register-meta.json ${key}.rows matches parsed row count`, m && m.rows === rows, `${m && m.rows} vs ${rows}`);
+  check(`register-meta.json ${key} has changedAt and checkedAt`, m && m.changedAt && m.checkedAt);
+}
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
