@@ -44,12 +44,14 @@ The downloaded report has one row per employee:
 
 | Column | Meaning |
 |--------|---------|
-| Check Date | When the check was run |
-| Date of Aged Care Banning Register File / Date of NDIS Compliance Export File | The date the published register file last **changed** (not the time it was downloaded) — i.e. which version of each register the check was run against |
-| Next check required date | Check Date + 3 months |
-| Banned/Not Banned | `Banned` only when a **full name** matched a **banning order**; `Possible match - verify` when the only matches were partial (initial / variant / surname) or against a non-banning action; `Not Banned` when nothing matched (or every partial match was dismissed) |
-| Match details | Every match, with the register, the entry name as it appears on the register, the match tier, the order type and location — enough to find the entry in the downloaded CSV |
-| Reason if banned | The register's own description text for each matched entry |
+| Location | As supplied in the uploaded file (blank for a single-name check) |
+| First Name / Last Name | As supplied |
+| Outcome | `Banned` only when a **full name** matched a **banning order**; `Possible match - verify` when the only matches were partial (initial / variant / surname) or against a non-banning action; `Not Banned` when nothing matched (or every partial match was dismissed) |
+| Banning Register Checked Date | The date the check was run |
+| Next Banning Register Check Date | Always 3 months after the check date |
+
+The register versions used are shown on the page (the *Register data* panel and the results
+audit bar) and can be downloaded from there if a result needs to be verified.
 
 ## How the register data works
 

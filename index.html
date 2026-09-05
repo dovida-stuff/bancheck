@@ -1088,41 +1088,27 @@ flaggedSection.addEventListener('click', e => {
 
 // ─── CSV download ─────────────────────────────────────────────────────────────
 downloadBtn.addEventListener('click', () => {
-  const checkDate  = dateStr(runAt);
-  const nextDate   = dateStr(addMonths(runAt, 3));
-  // Register file dates are when each published file last changed — not when
-  // this browser downloaded it — so the report records which version was used.
-  const acqscFD    = acqscFileDate ? dateStr(acqscFileDate) : '';
-  const ndisFD     = ndisFileDate  ? dateStr(ndisFileDate)  : '';
+  const checkDate = dateStr(runAt);
+  const nextDate  = dateStr(addMonths(runAt, 3));   // always 3 months after the check
 
   const headers = [
-    'Check Date',
-    'Date of Aged Care Banning Register File',
-    'Date of NDIS Compliance Export File',
+    'Location',
     'First Name',
-    'Middle Name',
     'Last Name',
-    'Next check required date',
-    'Banned/Not Banned',
-    'Match details',
-    'Reason if banned'
+    'Outcome',
+    'Banning Register Checked Date',
+    'Next Banning Register Check Date'
   ];
 
   const rows = [headers];
 
   for (const r of results) {
     const emp = r.employee;
-    // 'Banned' only for a full name match against a banning order; partial or
-    // non-banning matches export as 'Possible match - verify'.
+    // Outcome: 'Banned' only for a full name match against a banning order;
+    // partial or non-banning matches are 'Possible match - verify';
+    // no (remaining) matches is 'Not Banned'.
     const sum = summariseResult(r.acqscMatches, r.ndisMatches);
-
-    rows.push([
-      checkDate, acqscFD, ndisFD,
-      emp.firstName, emp.middleName || '', emp.lastName, nextDate,
-      sum.status,
-      sum.details,
-      sum.reason
-    ]);
+    rows.push([emp.location, emp.firstName, emp.lastName, sum.status, checkDate, nextDate]);
   }
 
   const csv  = Papa.unparse(rows);
