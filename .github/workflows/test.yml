@@ -1,0 +1,19 @@
+name: Test matcher
+
+on:
+  push:
+    paths-ignore:
+      - 'README.md'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run matcher tests against the committed register CSVs
+        run: node test/match.test.mjs
