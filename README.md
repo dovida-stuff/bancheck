@@ -8,7 +8,7 @@ A browser-based compliance tool for Dovida's People & Culture team. Checks emplo
 - The tool checks each name against:
   - **ACQSC Aged Care Banning Register** — issued under the Aged Care Act
   - **NDIS Commission Banning Register** — every entry in the export, including all compliance action types (banning orders, compliance notices, revocations, suspensions, etc.), expired orders, and organisations
-- Produces a colour-coded results page showing flagged employees and match details
+- Lists every employee with a match in a results table (Banned / Verify), with the matching register entry one click away; clear employees are not listed on the page but are included in the report
 - Results can be exported as a CSV report
 - Each register can be downloaded from the page, so any result can be verified by hand against the exact file the checker used
 - All processing happens in the browser — no employee data is transmitted to any server
@@ -16,27 +16,27 @@ A browser-based compliance tool for Dovida's People & Culture team. Checks emplo
 ## How to use it
 
 1. Go to **https://dovida-stuff.github.io/bancheck/**
-2. Either upload your employee CSV or Excel file, or type a single person's **First Name** and **Last Name** (first name is optional — a surname-only search flags all surname matches for review)
-3. Click **Run Check**
-4. Review flagged results and download the CSV report
+2. Either type a person's name (last name is required; a surname-only search flags all surname matches for review), or upload your employee CSV or Excel file
+3. Click **Run check**
+4. Click a row to see the register entry it matched, then download the report
 
-The **Register data** panel in Step 2 shows, for each register, when the published file last
-changed, when its source was last successfully checked, how many entries it holds, and its
-SHA-256 hash. If either source has not been successfully checked for more than 3 days the panel
-turns amber with a warning — that is the signal that the automatic update has stopped and needs
-attention (see *What to do if the Action fails*).
+The register line under the form shows each register's entry count and the date its content
+last changed, with a download link for each file. The ⓘ tooltip carries the SHA-256 hashes.
+If either source has not been successfully checked for more than 3 days the line turns amber
+with a warning — that is the signal that the automatic update has stopped and needs attention
+(see *What to do if the Action fails*).
 
 ### Verifying a result by hand
 
-1. In Step 2, click **Download CSV** next to the register that produced the match (the file is
-   named with the date its content last changed, e.g. `acqsc-aged-care-banning-register_2026-09-03.csv`)
+1. Click **Open register CSV** on the match, or the **↓ Aged Care** / **↓ NDIS** link under the
+   form (the file is named with the date its content last changed, e.g.
+   `acqsc-aged-care-banning-register_2026-09-03.csv`)
 2. Open it in Excel and search for the surname — the row the checker matched will be there
 3. To prove the download is the same file the checker used, hash it and compare with the
    SHA-256 shown on the page. In PowerShell: `Get-FileHash .\<file>.csv -Algorithm SHA256`;
    on a Mac: `shasum -a 256 <file>.csv`
-4. For the official record, the **Official source** link next to each register goes to the
-   government page the file is downloaded from, and **Version history** shows every version
-   of the file this tool has ever used, with the date each was committed
+4. For the official record, the source pages are linked in the page footer, and the file's
+   commit history in this repository shows every version the tool has ever used
 
 ### The CSV report
 
@@ -164,16 +164,16 @@ node test/match.test.mjs
 The suite also runs in GitHub Actions on every push (`.github/workflows/test.yml`) and inside
 the daily update workflow against the freshly downloaded data.
 
-### Flag colours
+### Outcomes
 
-Flagged results are colour-coded by how serious the match is:
+Each listed employee has one outcome:
 
-| Colour | Meaning |
-|--------|---------|
-| 🔴 Red | A **full name match** against a **banning order** — the strongest signal |
-| 🔵 Blue | A **partial name match** (initial or variant), or a match against a **non-banning compliance action** (compliance notice, revocation, suspension, etc.) — lower confidence, still review |
+| Outcome | Meaning |
+|---------|---------|
+| 🔴 Banned | A **full name match** against a **banning order** — the strongest signal |
+| 🔵 Verify | A **partial name match** (initial or variant), or a match against a **non-banning compliance action** (compliance notice, revocation, suspension, etc.) — lower confidence, still review |
 
-Blue is not "safe" — every flagged result still requires manual verification. The colour only indicates relative confidence.
+Verify is not "safe" — every listed employee still requires manual verification. Employees with no match are not listed on the page; they appear in the report as Not Banned.
 
 Note that "banning order" here means the register **entry type**, not whether the order is
 still current: an ACQSC entry whose status is *No longer in force*, or an NDIS banning order
@@ -182,6 +182,6 @@ on the match card and in the report's *Match details* column so the reviewer can
 
 ### Dismissing partial matches
 
-Blue (partial) matches can be **dismissed** during review using the **Dismiss match** button. Dismissing removes that match from the results; if an employee has no remaining matches they drop into the Clear list and export as "Not Banned". Full-name matches against banning orders (red) cannot be dismissed.
+Verify-level matches can be **dismissed** during review with the **Dismiss this match** link on the match. Dismissing removes that match; if an employee has no remaining matches they leave the table and export as "Not Banned". Banned matches cannot be dismissed.
 
 Dismissals are **session-only** — nothing is stored, and re-running the check restores all matches.
