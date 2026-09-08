@@ -9,17 +9,24 @@ on:
     - cron: '0 20 * * *'   # 6am AEST
   workflow_dispatch:
 
+# A manual run started while a scheduled run is still going would race it to
+# push; queue it instead.
+concurrency:
+  group: update-registers
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
 jobs:
   update-registers:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
-      - name: Verify API key secret is configured
+      - name: Check ScrapingBee fallback key
         env:
           KEY: ${{ secrets.SCRAPINGBEE_API_KEY }}
         run: |
@@ -27,229 +34,32 @@ jobs:
             echo "::warning::SCRAPINGBEE_API_KEY not set. Direct fetch will be attempted; ScrapingBee fallback disabled."
           fi
 
-      # Both fetch steps share this shape:
-      #   1. direct curl with a browser fingerprint (what has worked every day so far)
-      #   2. ScrapingBee fallback, only if the direct fetch failed and a key exists
-      # A download is written to a temp file and must pass validate() before it
-      # replaces the published CSV, so a failed run can never corrupt the data.
-      #
-      # validate() checks that the file:
-      #   - is non-empty and is not an HTML/JSON error page
-      #   - has the header columns the checker relies on
-      #   - has not shrunk by more than 20% against the file already published
-      #     (a truncated or partial export must not replace a complete one)
+      # Both fetches run scripts/fetch-register.sh: a direct download, then a
+      # ScrapingBee fallback, and a download only replaces the published CSV
+      # after passing validation (see the script header). A failed fetch keeps
+      # the last good file and is reported by the final step.
 
       - name: Fetch ACQSC Aged Care register
         id: acqsc
         continue-on-error: true
         env:
-          KEY: ${{ secrets.SCRAPINGBEE_API_KEY }}
-        run: |
-          KEY=$(printf '%s' "$KEY" | tr -d '[:space:]')
-          URL="https://www.agedcarequality.gov.au/sites/default/files/media/register-banning-orders-data-file.csv"
-          REFERER="https://www.agedcarequality.gov.au/providers/non-compliance/banning-orders"
-          TARGET="aged-care-register.csv"
-          HEADER_MUST_MATCH='First name.*Surname'
-          TMP=$(mktemp)
-
-          validate() {
-            local f=$1
-            [ -s "$f" ] || { echo "validate: empty file"; return 1; }
-            local peek; peek=$(head -c 200 "$f" | tr -d '\357\273\277[:space:]' | head -c 1)
-            { [ "$peek" = "{" ] || [ "$peek" = "<" ]; } && { echo "validate: looks like JSON/HTML, not CSV"; return 1; }
-            if ! head -n 1 "$f" | grep -qiE "$HEADER_MUST_MATCH"; then
-              echo "validate: header row does not contain expected columns ($HEADER_MUST_MATCH):"
-              head -n 1 "$f"
-              return 1
-            fi
-            local lines; lines=$(wc -l < "$f")
-            [ "$lines" -ge 5 ] || { echo "validate: only $lines lines"; return 1; }
-            if [ -s "$TARGET" ]; then
-              local old; old=$(wc -l < "$TARGET")
-              local floor=$(( old * 80 / 100 ))
-              if [ "$lines" -lt "$floor" ]; then
-                echo "validate: new file has $lines lines but the published file has $old — refusing to shrink by more than 20%"
-                return 1
-              fi
-            fi
-            return 0
-          }
-
-          # The source sometimes serves Windows-1252; the browser decodes the
-          # published file as UTF-8, so re-encode when needed.
-          to_utf8() {
-            local f=$1
-            if ! iconv -f UTF-8 -t UTF-8 "$f" >/dev/null 2>&1; then
-              echo "File is not valid UTF-8 — converting from Windows-1252"
-              iconv -f WINDOWS-1252 -t UTF-8 "$f" > "$f.utf8" && mv "$f.utf8" "$f"
-            fi
-          }
-
-          # --- Attempt 1: direct fetch with realistic browser fingerprint ---
-          echo "=== Attempt 1: direct fetch (Chrome browser fingerprint) ==="
-          set +e
-          HTTP_CODE=$(curl -sS -L --max-time 60 --compressed -w "%{http_code}" \
-            -o "$TMP" \
-            -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36" \
-            -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8" \
-            -H "Accept-Language: en-AU,en-US;q=0.9,en;q=0.8" \
-            -H "Accept-Encoding: gzip, deflate, br" \
-            -H "Referer: ${REFERER}" \
-            -H "Sec-Fetch-Dest: document" \
-            -H "Sec-Fetch-Mode: navigate" \
-            -H "Sec-Fetch-Site: same-origin" \
-            -H "Sec-Fetch-User: ?1" \
-            -H "Upgrade-Insecure-Requests: 1" \
-            "$URL")
-          CURL_EXIT=$?
-          set -e
-          echo "Direct: curl=$CURL_EXIT HTTP=$HTTP_CODE bytes=$(wc -c < "$TMP")"
-
-          if [ "$CURL_EXIT" = "0" ] && [ "$HTTP_CODE" = "200" ] && validate "$TMP"; then
-            to_utf8 "$TMP"
-            mv "$TMP" "$TARGET"
-            echo "Direct fetch succeeded ($(wc -l < "$TARGET") lines) — ScrapingBee not used"
-            exit 0
-          fi
-          echo "Direct fetch did not produce valid CSV; falling back to ScrapingBee"
-
-          if [ -z "$KEY" ]; then
-            echo "::error::Direct fetch failed and SCRAPINGBEE_API_KEY is not set — no fallback available"
-            head -c 1500 "$TMP" || true
-            rm -f "$TMP"
-            exit 1
-          fi
-
-          # --- Attempt 2: ScrapingBee ---
-          echo "=== Attempt 2: ScrapingBee (premium_proxy, no JS) ==="
-          set +e
-          HTTP_CODE=$(curl -sS -L --max-time 180 -w "%{http_code}" \
-            -o "$TMP" \
-            -G "https://app.scrapingbee.com/api/v1/" \
-            --data-urlencode "api_key=${KEY}" \
-            --data-urlencode "url=${URL}" \
-            --data-urlencode "render_js=false" \
-            --data-urlencode "premium_proxy=true")
-          CURL_EXIT=$?
-          set -e
-          echo "ScrapingBee: curl=$CURL_EXIT HTTP=$HTTP_CODE bytes=$(wc -c < "$TMP")"
-
-          if [ "$CURL_EXIT" = "0" ] && [ "$HTTP_CODE" = "200" ] && validate "$TMP"; then
-            to_utf8 "$TMP"
-            mv "$TMP" "$TARGET"
-            echo "ScrapingBee succeeded ($(wc -l < "$TARGET") lines)"
-            exit 0
-          fi
-
-          echo "::error::Both direct fetch and ScrapingBee failed for ACQSC"
-          echo "--- Final response preview ---"
-          head -c 1500 "$TMP" || true
-          rm -f "$TMP"
-          exit 1
+          SCRAPINGBEE_API_KEY: ${{ secrets.SCRAPINGBEE_API_KEY }}
+          REGISTER: acqsc
+          URL: https://www.agedcarequality.gov.au/sites/default/files/media/register-banning-orders-data-file.csv
+          REFERER: https://www.agedcarequality.gov.au/providers/non-compliance/banning-orders
+          TARGET: aged-care-register.csv
+        run: scripts/fetch-register.sh
 
       - name: Fetch NDIS Commission register
         id: ndis
         continue-on-error: true
         env:
-          KEY: ${{ secrets.SCRAPINGBEE_API_KEY }}
-        run: |
-          KEY=$(printf '%s' "$KEY" | tr -d '[:space:]')
-          URL="https://www.ndiscommission.gov.au/about-us/compliance-and-enforcement/compliance-actions/search/download-csv"
-          REFERER="https://www.ndiscommission.gov.au/about-us/compliance-and-enforcement/compliance-actions/search"
-          TARGET="ndis-register.csv"
-          HEADER_MUST_MATCH='Type.*Name'
-          TMP=$(mktemp)
-
-          validate() {
-            local f=$1
-            [ -s "$f" ] || { echo "validate: empty file"; return 1; }
-            local peek; peek=$(head -c 200 "$f" | tr -d '\357\273\277[:space:]' | head -c 1)
-            { [ "$peek" = "{" ] || [ "$peek" = "<" ]; } && { echo "validate: looks like JSON/HTML, not CSV"; return 1; }
-            if ! head -n 1 "$f" | grep -qiE "$HEADER_MUST_MATCH"; then
-              echo "validate: header row does not contain expected columns ($HEADER_MUST_MATCH):"
-              head -n 1 "$f"
-              return 1
-            fi
-            local lines; lines=$(wc -l < "$f")
-            [ "$lines" -ge 5 ] || { echo "validate: only $lines lines"; return 1; }
-            if [ -s "$TARGET" ]; then
-              local old; old=$(wc -l < "$TARGET")
-              local floor=$(( old * 80 / 100 ))
-              if [ "$lines" -lt "$floor" ]; then
-                echo "validate: new file has $lines lines but the published file has $old — refusing to shrink by more than 20%"
-                return 1
-              fi
-            fi
-            return 0
-          }
-
-          to_utf8() {
-            local f=$1
-            if ! iconv -f UTF-8 -t UTF-8 "$f" >/dev/null 2>&1; then
-              echo "File is not valid UTF-8 — converting from Windows-1252"
-              iconv -f WINDOWS-1252 -t UTF-8 "$f" > "$f.utf8" && mv "$f.utf8" "$f"
-            fi
-          }
-
-          echo "=== Attempt 1: direct fetch (Chrome browser fingerprint) ==="
-          set +e
-          HTTP_CODE=$(curl -sS -L --max-time 60 --compressed -w "%{http_code}" \
-            -o "$TMP" \
-            -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36" \
-            -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8" \
-            -H "Accept-Language: en-AU,en-US;q=0.9,en;q=0.8" \
-            -H "Accept-Encoding: gzip, deflate, br" \
-            -H "Referer: ${REFERER}" \
-            -H "Sec-Fetch-Dest: document" \
-            -H "Sec-Fetch-Mode: navigate" \
-            -H "Sec-Fetch-Site: same-origin" \
-            -H "Sec-Fetch-User: ?1" \
-            -H "Upgrade-Insecure-Requests: 1" \
-            "$URL")
-          CURL_EXIT=$?
-          set -e
-          echo "Direct: curl=$CURL_EXIT HTTP=$HTTP_CODE bytes=$(wc -c < "$TMP")"
-
-          if [ "$CURL_EXIT" = "0" ] && [ "$HTTP_CODE" = "200" ] && validate "$TMP"; then
-            to_utf8 "$TMP"
-            mv "$TMP" "$TARGET"
-            echo "Direct fetch succeeded ($(wc -l < "$TARGET") lines) — ScrapingBee not used"
-            exit 0
-          fi
-          echo "Direct fetch did not produce valid CSV; falling back to ScrapingBee"
-
-          if [ -z "$KEY" ]; then
-            echo "::error::Direct fetch failed and SCRAPINGBEE_API_KEY is not set — no fallback available"
-            head -c 1500 "$TMP" || true
-            rm -f "$TMP"
-            exit 1
-          fi
-
-          echo "=== Attempt 2: ScrapingBee (premium_proxy, no JS) ==="
-          set +e
-          HTTP_CODE=$(curl -sS -L --max-time 180 -w "%{http_code}" \
-            -o "$TMP" \
-            -G "https://app.scrapingbee.com/api/v1/" \
-            --data-urlencode "api_key=${KEY}" \
-            --data-urlencode "url=${URL}" \
-            --data-urlencode "render_js=false" \
-            --data-urlencode "premium_proxy=true")
-          CURL_EXIT=$?
-          set -e
-          echo "ScrapingBee: curl=$CURL_EXIT HTTP=$HTTP_CODE bytes=$(wc -c < "$TMP")"
-
-          if [ "$CURL_EXIT" = "0" ] && [ "$HTTP_CODE" = "200" ] && validate "$TMP"; then
-            to_utf8 "$TMP"
-            mv "$TMP" "$TARGET"
-            echo "ScrapingBee succeeded ($(wc -l < "$TARGET") lines)"
-            exit 0
-          fi
-
-          echo "::error::Both direct fetch and ScrapingBee failed for NDIS"
-          echo "--- Final response preview ---"
-          head -c 1500 "$TMP" || true
-          rm -f "$TMP"
-          exit 1
+          SCRAPINGBEE_API_KEY: ${{ secrets.SCRAPINGBEE_API_KEY }}
+          REGISTER: ndis
+          URL: https://www.ndiscommission.gov.au/about-us/compliance-and-enforcement/compliance-actions/search/download-csv
+          REFERER: https://www.ndiscommission.gov.au/about-us/compliance-and-enforcement/compliance-actions/search
+          TARGET: ndis-register.csv
+        run: scripts/fetch-register.sh
 
       # register-meta.json is what the page reads to show when each register
       # last changed / was last checked, its row count and its SHA-256 hash.
@@ -261,32 +71,50 @@ jobs:
         run: node scripts/register-meta.mjs --acqsc=${{ steps.acqsc.outcome }} --ndis=${{ steps.ndis.outcome }}
 
       # Runs the matcher against the freshly downloaded files. A failure here
-      # means a name format or column in the new data is not handled — the
-      # data is still published (a stale register is the bigger risk), but the
-      # workflow is marked failed so the problem is noticed.
+      # means a name format in the new data is not handled — the data is still
+      # published (a stale register is the bigger risk), but the workflow is
+      # marked failed so the problem is noticed.
       - name: Test matcher against the new data
         id: test
         continue-on-error: true
         run: node test/match.test.mjs
 
+      # A metadata failure means a CSV is structurally unusable (missing
+      # column, broken quoting) — publishing it would make the checker report
+      # "Not Banned" for everyone. Keep the last good CSVs in that case and
+      # record the run as a failed fetch so the page shows the amber warning.
       - name: Commit updated CSVs
+        env:
+          META_OK: ${{ steps.meta.outcome == 'success' }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add aged-care-register.csv ndis-register.csv register-meta.json 2>/dev/null || true
+          if [ "$META_OK" != "true" ]; then
+            echo "::warning::Metadata/column check failed — keeping the previously published CSVs"
+            git checkout -- aged-care-register.csv ndis-register.csv
+            node scripts/register-meta.mjs --acqsc=failure --ndis=failure || true
+          fi
+          git add aged-care-register.csv ndis-register.csv register-meta.json
           if git diff --staged --quiet; then
             echo "No changes to commit"
-          else
-            if git diff --staged --quiet -- aged-care-register.csv ndis-register.csv; then
-              git commit -m "Auto-update: registers checked $(date -u +'%Y-%m-%d'), no changes"
-            else
-              git commit -m "Auto-update: register CSVs $(date -u +'%Y-%m-%d')"
-            fi
-            git push
+            exit 0
           fi
+          if git diff --staged --quiet -- aged-care-register.csv ndis-register.csv; then
+            git commit -m "Auto-update: registers checked $(date -u +'%Y-%m-%d'), no changes"
+          else
+            git commit -m "Auto-update: register CSVs $(date -u +'%Y-%m-%d')"
+          fi
+          # Retry if main moved during the run; our register files are newer
+          # by construction, so they win any conflict on those paths.
+          for i in 1 2 3; do
+            git push && exit 0
+            echo "push rejected (attempt $i) — rebasing onto the current main"
+            git pull --rebase -X theirs origin "${GITHUB_REF_NAME}" || exit 1
+          done
+          exit 1
 
       - name: Fail if any step failed
-        if: steps.acqsc.outcome == 'failure' || steps.ndis.outcome == 'failure' || steps.meta.outcome == 'failure' || steps.test.outcome == 'failure'
+        if: always() && (steps.acqsc.outcome != 'success' || steps.ndis.outcome != 'success' || steps.meta.outcome != 'success' || steps.test.outcome != 'success')
         run: |
           echo "::error::ACQSC fetch: ${{ steps.acqsc.outcome }} | NDIS fetch: ${{ steps.ndis.outcome }} | metadata: ${{ steps.meta.outcome }} | matcher tests: ${{ steps.test.outcome }}"
           echo "::error::One or more steps failed. Check the steps above. The last good register files remain published."

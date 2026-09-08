@@ -1,0 +1,9 @@
+*.html text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.sh text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+# Register CSVs are published byte-for-byte as downloaded; never convert line endings
+*.csv -text
