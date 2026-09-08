@@ -55,8 +55,10 @@
   // "also know as" (sic), "aka"/"a.k.a.", "alias", "formerly (known as)",
   // "previously known as", "previous Legal Name:", "nee".
   var ALIAS_KW = '(?:also\\s+known?(?:\\s+as)?|\\ba\\.?k\\.?a\\b\\.?|\\balias\\b|\\bformerly(?:\\s+known\\s+as)?|\\bpreviously\\s+known\\s+as|\\bprevious\\s+legal\\s+name:?|\\bn[e\u00e9]e\\b)';
-  var ALIAS_LEAD = new RegExp('^\\s*' + ALIAS_KW + '\\s*', 'i');
-  var ALIAS_SPLIT = new RegExp('[,;]?\\s*' + ALIAS_KW + '\\s*|;', 'i');
+  // A keyword only counts as an introducer when a name follows it, so a
+  // surname that happens to be a keyword ("John NEE", "Mary ALIAS") is kept.
+  var ALIAS_LEAD = new RegExp('^\\s*' + ALIAS_KW + '(?=[\\s:]+\\S)[\\s:]*', 'i');
+  var ALIAS_SPLIT = new RegExp('[,;]?\\s*' + ALIAS_KW + '(?=[\\s:]+\\S)[\\s:]*|;', 'i');
   // "trading as", "t/a", "t/as", "T/A" — optionally preceded by ", " or " / ".
   var TRADING_AS = /[,;\/]?\s*\/?\s*(?:trading\s+as|\bt\/as?\b)[\s;:]*.*$/i;
   // Alias lists: "A and B", "A, B, and C", "A/B", "A or B". The primary
@@ -308,13 +310,40 @@
     }
     // Strongest first: higher score, then banning orders, then orders still
     // in force, so the most serious row is the one a reviewer sees first.
+    const now = Date.now();
     return Array.from(seen.values()).sort(function (a, b) {
       if (b.score !== a.score) return b.score - a.score;
       const ab = a.entry.isBanning ? 1 : 0, bb = b.entry.isBanning ? 1 : 0;
       if (ab !== bb) return bb - ab;
-      const ae = a.entry.endDate ? 1 : 0, be = b.entry.endDate ? 1 : 0;
-      return ae - be;
+      const ai = inForce(a.entry, now) ? 1 : 0, bi = inForce(b.entry, now) ? 1 : 0;
+      return bi - ai;
     });
+  }
+
+  // ── End dates ─────────────────────────────────────────────────────────────
+
+  // Register dates arrive as "2023-01-01 17:00" (sometimes with a leading
+  // space) or ISO "2026-09-08T07:00:00". Returns a timestamp or NaN.
+  function parseRegisterDate(raw) {
+    const s = String(raw == null ? '' : raw).trim();
+    return s ? new Date(s.replace(' ', 'T')).getTime() : NaN;
+  }
+
+  // Whether an action is still current at `now`: an explicit "no longer in
+  // force" status (ACQSC) or an end date that has passed means it is not.
+  function inForce(entry, now) {
+    if (/no[\s_]+longer/i.test(entry.orderType || '')) return false;
+    const end = parseRegisterDate(entry.endDate);
+    return isNaN(end) || end > (now == null ? Date.now() : now);
+  }
+
+  // "ended" once the end date has passed, "ends" while it is still ahead,
+  // null when there is no end date. Shared by the match card and the report
+  // so both say the same thing.
+  function endState(entry, now) {
+    if (!entry.endDate) return null;
+    const end = parseRegisterDate(entry.endDate);
+    return !isNaN(end) && end < (now == null ? Date.now() : now) ? 'ended' : 'ends';
   }
 
   // ── Result classification (shared by the page and the CSV export) ─────────
@@ -346,7 +375,7 @@
   //            'Not Banned' when there are no (remaining) matches.
   //   details  one line per match naming the register, the entry, the match
   //            tier and the order type, so a reviewer can find the entry.
-  function summariseResult(acqscMatches, ndisMatches) {
+  function summariseResult(acqscMatches, ndisMatches, now) {
     var all = [];
     (acqscMatches || []).forEach(function (m) { all.push({ reg: 'Aged Care', m: m }); });
     (ndisMatches || []).forEach(function (m) { all.push({ reg: 'NDIS', m: m }); });
@@ -357,7 +386,7 @@
       var bits = [MATCH_LABELS[x.m.matchType] || 'Possible match'];
       if (x.m.middleMatch) bits.push('middle name matches');
       if (e.orderType) bits.push(e.orderType);
-      if (e.endDate) bits.push('ended ' + e.endDate);
+      if (e.endDate) bits.push(endState(e, now) + ' ' + String(e.endDate).trim());
       if (e.suburb || e.state) bits.push([e.suburb, e.state].filter(Boolean).join(' '));
       return x.reg + ': ' + e.name + ' (' + bits.join('; ') + ')';
     }).join(' | ');
@@ -376,6 +405,9 @@
     matchEmployee: matchEmployee,
     isHighSeverity: isHighSeverity,
     summariseResult: summariseResult,
+    parseRegisterDate: parseRegisterDate,
+    inForce: inForce,
+    endState: endState,
     MATCH_LABELS: MATCH_LABELS,
     STATUS: STATUS
   };

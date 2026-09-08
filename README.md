@@ -83,7 +83,9 @@ AEST, which is why there are two slots. Every run:
    is caught before the file is published rather than after. A download that fails validation
    is discarded and the last good file stays published
 3. Normalises the file to UTF-8 (the ACQSC source sometimes serves Windows-1252, which
-   would otherwise corrupt names like *D'Aguilar* when the browser reads them)
+   would otherwise corrupt names like *D'Aguilar* when the browser reads them). A file that
+   is neither encoding is published with the undecodable bytes dropped and a warning in the
+   run log, since a stale register is the bigger risk
 4. Regenerates `register-meta.json` and runs the matcher test suite against the new data
 5. Commits whatever changed. A run that found no new data still commits the metadata, so the
    page can show "checked <today>" — and so a gap in the commit history means the workflow
@@ -168,7 +170,7 @@ Match tiers:
 Every tier is flagged for manual review. **Flagged results must be verified before any employment action is taken.**
 
 Every distinct register row that matches is listed, ordered strongest first (full match, then
-banning orders, then orders still in force). A person with an expired banning order and a
+banning orders, then orders still in force, judged by the entry's status and end date). A person with an expired banning order and a
 current one, or with a banning order and a later revocation, therefore shows every row rather
 than one of them.
 

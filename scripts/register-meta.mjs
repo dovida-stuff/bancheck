@@ -62,8 +62,10 @@ let verifyKey = null, verifyFile = null;
 const argv = process.argv.slice(2);
 for (let i = 0; i < argv.length; i++) {
   const m = /^--(\w+)=(\w+)$/.exec(argv[i]);
-  if (m && m[1] === 'verify') { verifyKey = m[2]; verifyFile = argv[++i]; }
-  else if (m) outcomes[m[1]] = m[2];
+  if (argv[i].startsWith('--verify')) {
+    if (!m) { console.error('usage: register-meta.mjs --verify=<acqsc|ndis> <file>'); process.exit(2); }
+    verifyKey = m[2]; verifyFile = argv[++i];
+  } else if (m) outcomes[m[1]] = m[2];
 }
 
 // Minimal RFC 4180 record counter: honours quoted fields so an embedded

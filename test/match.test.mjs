@@ -174,6 +174,10 @@ for (const [key, file, rows] of [['acqsc', 'aged-care-register.csv', acqscRaw.le
 // export is reported as SKIP rather than silently passing, so the suite
 // stays honest as the registers change.
 let skipped = 0;
+function row(name, type, from, to) {
+  return { name, suburb: 'X', orderType: type, orderDate: from, endDate: to || '',
+    isBanning: /banning order/i.test(type), nameCandidates: M.buildNameCandidates(name) };
+}
 function liveCase(reg, fragment, first, last, minScore, why) {
   const rows = reg === 'ndis' ? ndis : acqsc;
   const row = rows.find(r => r.name.toLowerCase().includes(fragment.toLowerCase()));
@@ -205,6 +209,15 @@ liveCase('acqsc', 'BARLETTA (also known as BIVIANO)', 'Roseanna', 'Biviano', 1.0
 liveCase('acqsc', 'PRAFAI (also known as PRASAI/PRAFI)', 'Saurav', 'Prasai', 1.0, 'slash-separated alias list');
 liveCase('acqsc', 'Jodi COMITO', 'Jodi', 'Comito', 1.0, 'long comma-separated alias list');
 liveCase('acqsc', 'WESENCIK (also know as Kate HARTMAN)', 'Kate', 'Hartman', 1.0, '"also know as" (sic)');
+// A surname that is itself an alias keyword must not be treated as one
+for (const [raw, first, last] of [['John NEE', 'John', 'Nee'], ['NEE, John', 'John', 'Nee'], ['Mary ALIAS', 'Mary', 'Alias'], ['Formerly, Ann', 'Ann', 'Formerly']]) {
+  const r = [row(raw, 'ER - Banning Order', '1')];
+  h = M.matchEmployee({ firstName: first, lastName: last }, r)[0];
+  check(`Keyword-like surname "${raw}" still full-matches`, h && h.score >= 1.0, h && h.score);
+}
+h = M.matchEmployee({ firstName: 'Jane', lastName: 'Brown' }, [row('Jane Smith nee Brown', 'ER - Banning Order', '1')])[0];
+check('"nee" with a following name is still an alias', h && h.score >= 1.0);
+
 // Titles typed into the employee first-name field
 h = best('Mr Jacob', 'Tants', ndis);
 check('A title in the employee first name is ignored', h && h.score >= 1.0);
@@ -222,10 +235,6 @@ check('"Tanaka" is not truncated by the aka rule', h && h.score >= 1.0);
 // first (score, then banning order, then still in force). Built from
 // synthetic rows so the test does not depend on which names are in the
 // live export this week.
-function row(name, type, from, to) {
-  return { name, suburb: 'X', orderType: type, orderDate: from, endDate: to || '',
-    isBanning: /banning order/i.test(type), nameCandidates: M.buildNameCandidates(name) };
-}
 const synth = [
   row('Pat Example', 'ER - Compliance notice', '2025-01-01'),
   row('Pat Example', 'ER - Banning Order', '2023-01-01', '2025-01-01'),
@@ -261,7 +270,24 @@ if (acqscEnded) {
   const c = acqscEnded.nameCandidates[acqscEnded.nameCandidates.length - 1];
   const hits = M.matchEmployee({ firstName: c.given[0], lastName: c.surnameKey }, [acqscEnded]);
   const s9 = M.summariseResult(hits, []);
-  check('Report details mention the ACQSC end date', /ended /.test(s9.details), s9.details);
+  check('Report details mention the ACQSC end date', /end(s|ed) /.test(s9.details), s9.details);
+}
+// Tense follows the end date: a future date "ends", a past date "ended".
+const t2020 = Date.UTC(2020, 0, 1);
+const future = row('Future Example', 'ER - Banning Order', '2019-01-01', '2030-01-01T07:00:00');
+const pastRow = row('Past Example', 'ER - Banning Order', '2015-01-01', ' 2016-01-01 17:00');
+check('Report says "ends" for a future end date',
+  /ends 2030/.test(M.summariseResult([], M.matchEmployee({ firstName: 'Future', lastName: 'Example' }, [future]), t2020).details));
+check('Report says "ended" for a past end date',
+  /ended 2016/.test(M.summariseResult([], M.matchEmployee({ firstName: 'Past', lastName: 'Example' }, [pastRow]), t2020).details));
+check('inForce: no end date, future end date, past end date, "No longer in force" status',
+  M.inForce(row('x', 'ER - Banning Order', '1'), t2020) && M.inForce(future, t2020) && !M.inForce(pastRow, t2020)
+  && !M.inForce({ orderType: 'No longer in force', endDate: '' }, t2020) && !M.inForce({ orderType: 'NO_LONGER_IN_FORCE', endDate: '' }, t2020));
+{
+  const expired = row('Order Example', 'ER - Banning Order', '2010-01-01', '2012-01-01');
+  const current = row('Order Example', 'ER - Banning Order', '2019-01-01', '2030-01-01');
+  const o = M.matchEmployee({ firstName: 'Order', lastName: 'Example' }, [expired, current]);
+  check('Current order sorts before an expired order with a later end date', o[0].entry === current);
 }
 
 // ── 10. Employee first-name field holding several given names ──────────────

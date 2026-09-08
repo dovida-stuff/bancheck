@@ -24,7 +24,8 @@ set -euo pipefail
 : "${URL:?URL is required}"
 : "${REFERER:?REFERER is required}"
 : "${TARGET:?TARGET is required}"
-KEY=${SCRAPINGBEE_API_KEY:-}
+# Trim whitespace in case the secret was pasted with a trailing newline.
+KEY=$(printf '%s' "${SCRAPINGBEE_API_KEY:-}" | tr -d '[:space:]')
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 VERIFY="$HERE/register-meta.mjs"
 
@@ -61,16 +62,20 @@ validate() {
 }
 
 # The source sometimes serves Windows-1252; the browser decodes the published
-# file as UTF-8, so re-encode when needed. Returns 1 (rather than aborting the
-# script) if conversion is impossible, so the caller can fall through to the
-# next attempt.
+# file as UTF-8, so re-encode when needed. A file that is neither (a stray
+# byte in an otherwise UTF-8 file) is published with the bad bytes dropped
+# and a warning, because a stale register is the bigger risk. Returns 1
+# (rather than aborting the script) only if iconv cannot produce anything,
+# so the caller can fall through to the next attempt.
 to_utf8() {
   local f=$1
   iconv -f UTF-8 -t UTF-8 "$f" >/dev/null 2>&1 && return 0
   echo "File is not valid UTF-8 — converting from Windows-1252"
   if iconv -f WINDOWS-1252 -t UTF-8 "$f" > "$f.utf8" 2>/dev/null; then mv "$f.utf8" "$f"; return 0; fi
+  echo "::warning::$REGISTER: file is neither UTF-8 nor Windows-1252 — publishing with undecodable bytes removed"
+  if iconv -c -f UTF-8 -t UTF-8 "$f" > "$f.utf8" 2>/dev/null; then mv "$f.utf8" "$f"; return 0; fi
   rm -f "$f.utf8"
-  echo "to_utf8: conversion failed — the file contains bytes that are neither UTF-8 nor Windows-1252"
+  echo "to_utf8: conversion failed"
   return 1
 }
 

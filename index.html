@@ -39,7 +39,7 @@
        frame-ancestors is ignored in a meta tag (a header is needed, which
        GitHub Pages cannot send) — the frame-buster in the script covers it. -->
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'none'; script-src 'self' 'sha256-NFMj4ixBEZBArQuKLn4RighxX9vPfYU7rVQUXXWcT58=' https://cdnjs.cloudflare.com; style-src 'self' 'sha256-HkWob2m/2h21r3hnrHWt1wZU33wJ7K4E/HTHw4U1PUU='; connect-src 'self'; img-src 'none'; frame-ancestors 'none'; form-action 'none'; base-uri 'self'">
+    content="default-src 'none'; script-src 'self' 'sha256-brsYLfbul2zaVKpMeiFKlKhN5vG4xe1+SKm/l7Vd51w=' https://cdnjs.cloudflare.com; style-src 'self' 'sha256-HkWob2m/2h21r3hnrHWt1wZU33wJ7K4E/HTHw4U1PUU='; connect-src 'self'; img-src 'none'; frame-ancestors 'none'; form-action 'none'; base-uri 'self'">
   <title>Banning Register Checker — Dovida</title>
   <!-- SRI hashes verify file integrity; crossorigin required for SRI to apply -->
   <script
@@ -282,7 +282,7 @@ const STALE_AFTER_DAYS = 3;                 // warn if no successful update for 
 
 // Matching + register normalisation logic is shared with the test suite — see matcher.js
 const { normaliseAcqscRow, normaliseNdisRow, matchEmployee,
-        isHighSeverity, summariseResult, MATCH_LABELS } = BanMatcher;
+        isHighSeverity, summariseResult, endState, MATCH_LABELS } = BanMatcher;
 const STATUS_UNCHECKED = 'Not checked - surname missing';
 
 // ─── Application state ────────────────────────────────────────────────────────
@@ -483,6 +483,13 @@ function loadSingleName() {
 
   if (!ln) {
     singleStatus.textContent = 'Please enter at least a last name to check.';
+    singleStatus.className    = 'field wide field-status err';
+    return false;
+  }
+  // A surname of only punctuation or spaces cannot be compared with anything
+  // and must not come back as "Not Banned".
+  if (BanMatcher.tokenise(ln).length === 0) {
+    singleStatus.textContent = 'The last name must contain letters.';
     singleStatus.className    = 'field wide field-status err';
     return false;
   }
@@ -719,11 +726,11 @@ downloadBtn.addEventListener('click', () => {
     // Outcome: 'Banned' only for a full name match against a banning order;
     // partial or non-banning matches are 'Possible match - verify';
     // no (remaining) matches is 'Not Banned'.
-    const sum = summariseResult(r.acqscMatches, r.ndisMatches);
+    const sum = summariseResult(r.acqscMatches, r.ndisMatches, runAt.getTime());
     // A dismissed partial match is recorded too, so the report shows why a
     // person who matched is nonetheless Not Banned.
     let details = sum.details;
-    const dismissed = summariseResult(r.dismissedAcqsc, r.dismissedNdis).details;
+    const dismissed = summariseResult(r.dismissedAcqsc, r.dismissedNdis, runAt.getTime()).details;
     if (dismissed) details = (details ? details + ' | ' : '') + 'Dismissed by reviewer: ' + dismissed;
     rows.push([emp.location, emp.firstName, emp.lastName,
                emp.unchecked ? STATUS_UNCHECKED : sum.status, details, checkDate, nextDate]);
@@ -794,11 +801,8 @@ function dateLong(d) {
 // still ahead; an NDIS banning order with no end date is simply in force
 // (ACQSC rows already carry an In force / No longer in force status).
 function endLabel(e, reg) {
-  if (e.endDate) {
-    const d = new Date(e.endDate.trim().replace(' ', 'T'));
-    const past = !isNaN(d.getTime()) && d.getTime() < (runAt || new Date()).getTime();
-    return `${past ? 'ended' : 'ends'} ${fmtDate(e.endDate)}`;
-  }
+  const state = endState(e, runAt ? runAt.getTime() : undefined);
+  if (state) return `${state} ${fmtDate(e.endDate)}`;
   return reg === 'ndis' && e.isBanning ? 'in force' : '';
 }
 
