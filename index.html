@@ -39,7 +39,7 @@
        frame-ancestors is ignored in a meta tag (a header is needed, which
        GitHub Pages cannot send) — the frame-buster in the script covers it. -->
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'none'; script-src 'self' 'sha256-TtE//J1gQ86DA5ahByTMjxbZs/WZiXPUhwCPXDVc7SQ=' https://cdnjs.cloudflare.com; style-src 'self' 'sha256-HkWob2m/2h21r3hnrHWt1wZU33wJ7K4E/HTHw4U1PUU='; connect-src 'self'; img-src 'none'; frame-ancestors 'none'; form-action 'none'; base-uri 'self'">
+    content="default-src 'none'; script-src 'self' 'sha256-NFMj4ixBEZBArQuKLn4RighxX9vPfYU7rVQUXXWcT58=' https://cdnjs.cloudflare.com; style-src 'self' 'sha256-HkWob2m/2h21r3hnrHWt1wZU33wJ7K4E/HTHw4U1PUU='; connect-src 'self'; img-src 'none'; frame-ancestors 'none'; form-action 'none'; base-uri 'self'">
   <title>Banning Register Checker — Dovida</title>
   <!-- SRI hashes verify file integrity; crossorigin required for SRI to apply -->
   <script
@@ -647,7 +647,7 @@ function renderMatch(m, empId, reg, idx) {
     where,
     prettyStatus(e.orderType),
     e.orderDate ? `from ${fmtDate(e.orderDate)}` : '',
-    reg === 'ndis' && e.isBanning ? (e.endDate ? `ended ${fmtDate(e.endDate)}` : 'in force') : (e.endDate ? `ends ${fmtDate(e.endDate)}` : '')
+    endLabel(e, reg)
   ].filter(Boolean).join(' · ');
   const dl    = reg === 'acqsc' ? 'dlAcqsc' : 'dlNdis';
   const dlEl  = document.getElementById(dl);
@@ -788,6 +788,18 @@ function addMonths(d, n) {
 function dateLong(d) {
   if (!d || isNaN(d.getTime())) return '';
   return d.toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+// "ended <date>" once the end date has passed, "ends <date>" while it is
+// still ahead; an NDIS banning order with no end date is simply in force
+// (ACQSC rows already carry an In force / No longer in force status).
+function endLabel(e, reg) {
+  if (e.endDate) {
+    const d = new Date(e.endDate.trim().replace(' ', 'T'));
+    const past = !isNaN(d.getTime()) && d.getTime() < (runAt || new Date()).getTime();
+    return `${past ? 'ended' : 'ends'} ${fmtDate(e.endDate)}`;
+  }
+  return reg === 'ndis' && e.isBanning ? 'in force' : '';
 }
 
 // ACQSC statuses arrive as IN_FORCE etc.; show them as words.
