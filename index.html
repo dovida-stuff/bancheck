@@ -17,9 +17,14 @@
   Results  : Only employees with a match are listed on the page; every
              employee (including clear ones) is in the downloaded report.
   Security:
-    - CSP restricts scripts to self + cdnjs, connections to same-origin only,
-      eval blocked, framing blocked
-    - No employee data written to localStorage, sessionStorage, URL, or console
+    - CSP restricts scripts to this file's inline script (by hash), matcher.js
+      and the two pinned cdnjs libraries (SRI); connections to same-origin
+      only; eval blocked. frame-ancestors cannot be enforced from a meta tag,
+      so a frame-buster in the script refuses to run when framed.
+    - The inline script and style are hash-pinned: test/match.test.mjs fails
+      if index.html is edited without updating the hashes in the CSP.
+    - No employee data written to localStorage, sessionStorage, URL, or console;
+      the only thing that leaves the page is the report the user downloads
     - All in-memory data cleared on page unload
   Deploy : GitHub Pages serves this file and the CSV files from the repo root.
 -->
@@ -27,10 +32,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <!-- CSP: scripts to self + cdnjs only, no eval, connect to same-origin only, no framing -->
-  <!-- Note: frame-ancestors only works via HTTP header, not meta tag; include for intent -->
+  <meta name="referrer" content="no-referrer">
+  <!-- CSP. The inline script and style are allowed by hash rather than
+       'unsafe-inline'; test/match.test.mjs recomputes both hashes, so an edit
+       to either block fails the tests until the hashes here are updated.
+       frame-ancestors is ignored in a meta tag (a header is needed, which
+       GitHub Pages cannot send) — the frame-buster in the script covers it. -->
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'none'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'none'; frame-ancestors 'none'; form-action 'none'; base-uri 'self'">
+    content="default-src 'none'; script-src 'self' 'sha256-TtE//J1gQ86DA5ahByTMjxbZs/WZiXPUhwCPXDVc7SQ=' https://cdnjs.cloudflare.com; style-src 'self' 'sha256-HkWob2m/2h21r3hnrHWt1wZU33wJ7K4E/HTHw4U1PUU='; connect-src 'self'; img-src 'none'; frame-ancestors 'none'; form-action 'none'; base-uri 'self'">
   <title>Banning Register Checker — Dovida</title>
   <!-- SRI hashes verify file integrity; crossorigin required for SRI to apply -->
   <script
@@ -146,6 +155,7 @@
     .pill.ban { background: var(--ban-bg); color: var(--ban); }
     .pill.rev { background: var(--review-bg); color: var(--review); }
     .pill.ok  { background: var(--ok-bg); color: var(--ok); }
+    .pill.unc { background: var(--warn-bg); color: var(--warn); }
 
     tr.detail td { background: var(--row-alt); padding: 12px 18px 14px 188px; }
     tr.detail[hidden] { display: none; }
@@ -161,7 +171,8 @@
     .dismiss-btn:hover { color: var(--ink); }
     .none { padding: 22px 18px; color: var(--ok); font-weight: 700; }
 
-    footer { text-align: center; font-size: 11px; color: var(--muted); padding: 0 20px 28px; }
+    footer { text-align: center; font-size: 11px; color: var(--muted); padding: 0 20px 28px; line-height: 1.8; }
+    footer a { color: var(--muted); }
 
     @media (max-width: 640px) {
       .topbar { padding: 12px 16px; }
@@ -245,9 +256,24 @@
 
 </main>
 
-<footer>© M&amp;S Warner 2025 &nbsp;·&nbsp; A number of Dovida&reg; offices are independently owned and operated franchises.</footer>
+<footer>
+  Sources:
+  <a href="https://www.agedcarequality.gov.au/providers/compliance-enforcement/banning-orders" rel="noopener noreferrer">ACQSC banning orders</a>
+  ·
+  <a href="https://www.ndiscommission.gov.au/about-us/compliance-and-enforcement/compliance-actions/search" rel="noopener noreferrer">NDIS Commission compliance actions</a>
+  <br>
+  © M&amp;S Warner 2025 &nbsp;·&nbsp; A number of Dovida&reg; offices are independently owned and operated franchises.
+</footer>
 
 <script>
+// GitHub Pages cannot send a frame-ancestors header, so refuse to run inside
+// another site's frame (best effort against clickjacking).
+if (window.top !== window.self) {
+  document.documentElement.hidden = true;
+  try { window.top.location = window.self.location; } catch (_) {}
+  throw new Error('Banning Register Checker will not run inside a frame');
+}
+
 // ─── Configuration ────────────────────────────────────────────────────────────
 const ACQSC_CSV = './aged-care-register.csv';
 const NDIS_CSV  = './ndis-register.csv';
@@ -257,6 +283,7 @@ const STALE_AFTER_DAYS = 3;                 // warn if no successful update for 
 // Matching + register normalisation logic is shared with the test suite — see matcher.js
 const { normaliseAcqscRow, normaliseNdisRow, matchEmployee,
         isHighSeverity, summariseResult, MATCH_LABELS } = BanMatcher;
+const STATUS_UNCHECKED = 'Not checked - surname missing';
 
 // ─── Application state ────────────────────────────────────────────────────────
 let employees    = [];   // { location, firstName, lastName, fullName }
@@ -326,11 +353,9 @@ function handleFile(file) {
     return;
   }
 
-  // Additional MIME-type sanity check for CSV
-  if (ext === 'csv' && file.type && !file.type.includes('text') && !file.type.includes('csv') && file.type !== 'application/octet-stream') {
-    setFileError('File does not appear to be a valid CSV. Please check the file and try again.');
-    return;
-  }
+  // No MIME-type check: Windows reports .csv files as application/vnd.ms-excel
+  // when Excel is installed, and the parser rejects a non-CSV anyway (the
+  // required columns will not be found).
 
   if (ext === 'csv') {
     Papa.parse(file, {
@@ -345,7 +370,9 @@ function handleFile(file) {
       try {
         const wb   = XLSX.read(e.target.result, { type: 'array' });
         const ws   = wb.Sheets[wb.SheetNames[0]];
-        const data = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        // raw:false returns every cell as formatted text, so a numeric
+        // location code or surname does not arrive as a JS number.
+        const data = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
         loadEmployees(data, name);
       } catch (err) {
         setFileError('Could not read Excel file: ' + err.message);
@@ -391,7 +418,10 @@ function loadEmployees(rows, filename) {
         firstName:  fn,
         middleName: mn,
         lastName:   ln,
-        fullName:   [fn, mn, ln].filter(Boolean).join(' ')
+        fullName:   [fn, mn, ln].filter(Boolean).join(' '),
+        // A row with no usable surname cannot be checked. It is listed and
+        // exported as such, never as "Not Banned".
+        unchecked:  BanMatcher.tokenise(ln).length === 0
       };
     })
     .filter(e => e.firstName || e.lastName);
@@ -441,7 +471,7 @@ function setFileError(msg) {
     singleStatus.className    = 'field wide field-status';
     runBtn.disabled = !fileLoaded && !strip(singleLast.value);
   });
-  input.addEventListener('keydown', e => { if (e.key === 'Enter') runCheck(); });
+  input.addEventListener('keydown', e => { if (e.key === 'Enter' && !runBtn.disabled) runCheck(); });
 });
 
 // Builds the employee list from the name fields. Returns false (with an
@@ -501,10 +531,12 @@ async function runCheck() {
   runAt   = new Date();
   expanded.clear();
   results = employees.map((emp, i) => ({
-    id:           i,   // stable index into results, used to target dismissals and expansion
-    employee:     emp,
-    acqscMatches: matchEmployee(emp, acqscRows),
-    ndisMatches:  matchEmployee(emp, ndisRows)
+    id:             i,   // stable index into results, used to target dismissals and expansion
+    employee:       emp,
+    acqscMatches:   matchEmployee(emp, acqscRows),
+    ndisMatches:    matchEmployee(emp, ndisRows),
+    dismissedAcqsc: [],  // partial matches the reviewer dismissed (kept for the report)
+    dismissedNdis:  []
   }));
 
   runBtn.innerHTML = 'Run check';
@@ -555,6 +587,7 @@ function parseCsv(text, label) {
 // employees are counted in the summary line and included in the report.
 
 function outcomeOf(r) {
+  if (r.employee.unchecked) return { cls: 'unc', text: 'No surname' };
   const s = summariseResult(r.acqscMatches, r.ndisMatches).status;
   if (s === BanMatcher.STATUS.banned) return { cls: 'ban', text: 'Banned' };
   if (s === BanMatcher.STATUS.review) return { cls: 'rev', text: 'Verify' };
@@ -562,13 +595,15 @@ function outcomeOf(r) {
 }
 
 function renderResults() {
-  const flagged = results.filter(r => r.acqscMatches.length > 0 || r.ndisMatches.length > 0);
-  const banned  = flagged.filter(r => outcomeOf(r).cls === 'ban').length;
-  const verify  = flagged.length - banned;
-  const clear   = results.length - flagged.length;
+  const flagged   = results.filter(r => r.employee.unchecked || r.acqscMatches.length > 0 || r.ndisMatches.length > 0);
+  const unchecked = flagged.filter(r => r.employee.unchecked).length;
+  const banned    = flagged.filter(r => outcomeOf(r).cls === 'ban').length;
+  const verify    = flagged.length - banned - unchecked;
+  const clear     = results.length - flagged.length;
 
   resultsMeta.textContent =
-    `${results.length} checked · ${banned} banned · ${verify} to verify · ${clear} clear · ${dtStr(runAt)}`;
+    `${results.length} checked · ${banned} banned · ${verify} to verify · ${clear} clear` +
+    (unchecked ? ` · ${unchecked} not checked (no surname)` : '') + ` · ${dtStr(runAt)}`;
 
   if (flagged.length === 0) {
     resultsTable.innerHTML = `<div class="none">No matches on either register.</div>`;
@@ -588,9 +623,10 @@ function renderRow(r) {
   const emp  = r.employee;
   const out  = outcomeOf(r);
   const open = expanded.has(r.id);
-  const matches =
-    r.acqscMatches.map((m, i) => renderMatch(m, r.id, 'acqsc', i)).join('') +
-    r.ndisMatches.map((m, i) => renderMatch(m, r.id, 'ndis', i)).join('');
+  const matches = emp.unchecked
+    ? `<div class="match"><div class="who">Not checked</div><div class="line">This row has no surname, so it could not be compared with the registers. Correct the staff list and run the check again.</div></div>`
+    : r.acqscMatches.map((m, i) => renderMatch(m, r.id, 'acqsc', i)).join('') +
+      r.ndisMatches.map((m, i) => renderMatch(m, r.id, 'ndis', i)).join('');
 
   return `<tr class="emp" data-emp="${r.id}" tabindex="0" aria-expanded="${open}">
       <td class="loc">${esc(emp.location)}</td>
@@ -635,7 +671,9 @@ resultsTable.addEventListener('click', e => {
     e.preventDefault();
     const r = results[+btn.dataset.emp];
     if (!r) return;
-    (btn.dataset.reg === 'acqsc' ? r.acqscMatches : r.ndisMatches).splice(+btn.dataset.idx, 1);
+    const acq = btn.dataset.reg === 'acqsc';
+    const removed = (acq ? r.acqscMatches : r.ndisMatches).splice(+btn.dataset.idx, 1);
+    (acq ? r.dismissedAcqsc : r.dismissedNdis).push(...removed);
     renderResults();
     return;
   }
@@ -669,6 +707,7 @@ downloadBtn.addEventListener('click', () => {
     'First Name',
     'Last Name',
     'Outcome',
+    'Match details',
     'Banning Register Checked Date',
     'Next Banning Register Check Date'
   ];
@@ -681,10 +720,19 @@ downloadBtn.addEventListener('click', () => {
     // partial or non-banning matches are 'Possible match - verify';
     // no (remaining) matches is 'Not Banned'.
     const sum = summariseResult(r.acqscMatches, r.ndisMatches);
-    rows.push([emp.location, emp.firstName, emp.lastName, sum.status, checkDate, nextDate]);
+    // A dismissed partial match is recorded too, so the report shows why a
+    // person who matched is nonetheless Not Banned.
+    let details = sum.details;
+    const dismissed = summariseResult(r.dismissedAcqsc, r.dismissedNdis).details;
+    if (dismissed) details = (details ? details + ' | ' : '') + 'Dismissed by reviewer: ' + dismissed;
+    rows.push([emp.location, emp.firstName, emp.lastName,
+               emp.unchecked ? STATUS_UNCHECKED : sum.status, details, checkDate, nextDate]);
   }
 
-  const csv  = Papa.unparse(rows);
+  // escapeFormulae: a cell beginning with = + - @ would be evaluated as a
+  // formula by Excel; the report echoes values from the uploaded file, so
+  // prefix such cells with an apostrophe (Excel then shows them as text).
+  const csv  = Papa.unparse(rows, { escapeFormulae: true });
   const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
   const url  = URL.createObjectURL(blob);
   const a    = Object.assign(document.createElement('a'), {
@@ -694,13 +742,18 @@ downloadBtn.addEventListener('click', () => {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  // Revoke after the download has started; revoking synchronously has made
+  // the download fail silently in some browsers.
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 });
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
+// Cells from an uploaded spreadsheet can arrive as numbers or booleans, not
+// only strings, so coerce before trimming.
 function strip(s) {
-  return (s || '').trim().replace(/[‘’]/g, "'");
+  return String(s == null ? '' : s).trim().replace(/[‘’]/g, "'");
 }
+
 
 function esc(s) {
   return (s || '')
@@ -844,7 +897,7 @@ async function loadRegisterInfo() {
   // the automatic update has stopped working.
   const problems = [];
   for (const [label, entry] of [['Aged Care', acqsc], ['NDIS', ndis]]) {
-    if (!entry) continue;
+    if (!entry) { if (meta) problems.push(`${label} has no metadata`); continue; }
     const age = daysAgo(parseDate(entry.checkedAt));
     const failed = entry.lastFetch && entry.lastFetch.outcome && entry.lastFetch.outcome !== 'success';
     if (age === null) problems.push(`${label} has never been successfully updated`);

@@ -1,5 +1,8 @@
 name: Test matcher
 
+# Runs on human pushes and pull requests. Commits made by the update workflow
+# with GITHUB_TOKEN do not trigger this workflow (GitHub suppresses that); the
+# freshly downloaded data is tested inside the update workflow itself.
 on:
   push:
     paths-ignore:
@@ -7,12 +10,15 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
       - name: Run matcher tests against the committed register CSVs
