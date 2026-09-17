@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-16T22:25:41.928Z",
+  "generatedAt": "2026-09-17T05:36:44.755Z",
   "registers": {
     "acqsc": {
       "file": "aged-care-register.csv",
@@ -10,9 +10,9 @@
       "bytes": 212744,
       "sha256": "62943225c1b4c7f9f527b693481160b14287873828826910e743e591476ffc6c",
       "changedAt": "2026-09-16T05:30:15.618Z",
-      "checkedAt": "2026-09-16T22:25:41.928Z",
+      "checkedAt": "2026-09-17T05:36:44.755Z",
       "lastFetch": {
-        "at": "2026-09-16T22:25:41.928Z",
+        "at": "2026-09-17T05:36:44.755Z",
         "outcome": "success"
       }
     },
@@ -23,11 +23,11 @@
       "sourcePage": "https://www.ndiscommission.gov.au/about-us/compliance-and-enforcement/compliance-actions/search",
       "rows": 4273,
       "bytes": 4543094,
-      "sha256": "db2559489f85c543ad93b8abaebfa074fe46a326ee26a5b6d0b7919098335cb2",
-      "changedAt": "2026-09-16T05:30:15.618Z",
-      "checkedAt": "2026-09-16T22:25:41.928Z",
+      "sha256": "3a4989522281266d69b309fa23db0a66ffe674b50985b84d5c8bedd2cf5f3813",
+      "changedAt": "2026-09-17T05:36:44.755Z",
+      "checkedAt": "2026-09-17T05:36:44.755Z",
       "lastFetch": {
-        "at": "2026-09-16T22:25:41.928Z",
+        "at": "2026-09-17T05:36:44.755Z",
         "outcome": "success"
       }
     }
