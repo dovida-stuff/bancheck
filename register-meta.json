@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-22T22:27:00.366Z",
+  "generatedAt": "2026-09-23T05:23:30.626Z",
   "registers": {
     "acqsc": {
       "file": "aged-care-register.csv",
@@ -10,9 +10,9 @@
       "bytes": 214061,
       "sha256": "b2b59018cf1015ebae4fc4bdc62a8d0737fd4ed169a4f6943ec606faa7f40b3b",
       "changedAt": "2026-09-18T21:58:17.070Z",
-      "checkedAt": "2026-09-22T22:27:00.366Z",
+      "checkedAt": "2026-09-23T05:23:30.626Z",
       "lastFetch": {
-        "at": "2026-09-22T22:27:00.366Z",
+        "at": "2026-09-23T05:23:30.626Z",
         "outcome": "success"
       }
     },
@@ -25,9 +25,9 @@
       "bytes": 4566644,
       "sha256": "2c32d44ee0657881fc8ec16bd6a9c912ed56f7981eb9227f39e2834dc73aa2fc",
       "changedAt": "2026-09-22T05:38:46.065Z",
-      "checkedAt": "2026-09-22T22:27:00.366Z",
+      "checkedAt": "2026-09-23T05:23:30.626Z",
       "lastFetch": {
-        "at": "2026-09-22T22:27:00.366Z",
+        "at": "2026-09-23T05:23:30.626Z",
         "outcome": "success"
       }
     }
