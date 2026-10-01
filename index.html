@@ -39,7 +39,7 @@
        frame-ancestors is ignored in a meta tag (a header is needed, which
        GitHub Pages cannot send) — the frame-buster in the script covers it. -->
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'none'; script-src 'self' 'sha256-brsYLfbul2zaVKpMeiFKlKhN5vG4xe1+SKm/l7Vd51w=' https://cdnjs.cloudflare.com; style-src 'self' 'sha256-HkWob2m/2h21r3hnrHWt1wZU33wJ7K4E/HTHw4U1PUU='; connect-src 'self'; img-src 'none'; frame-ancestors 'none'; form-action 'none'; base-uri 'self'">
+    content="default-src 'none'; script-src 'self' 'sha256-CqVybWljvZDq0ROXsFtuWx6Ua/zueRRhrXH0y+9sC0A=' https://cdnjs.cloudflare.com; style-src 'self' 'sha256-HkWob2m/2h21r3hnrHWt1wZU33wJ7K4E/HTHw4U1PUU='; connect-src 'self'; img-src 'none'; frame-ancestors 'none'; form-action 'none'; base-uri 'self'">
   <title>Banning Register Checker — Dovida</title>
   <!-- SRI hashes verify file integrity; crossorigin required for SRI to apply -->
   <script
@@ -279,6 +279,7 @@ const ACQSC_CSV = './aged-care-register.csv';
 const NDIS_CSV  = './ndis-register.csv';
 const META_JSON = './register-meta.json';   // written by the update workflow
 const STALE_AFTER_DAYS = 3;                 // warn if no successful update for this long
+const UNCHANGED_AFTER_DAYS = 21;            // warn if a register's content has not changed for this long
 
 // Matching + register normalisation logic is shared with the test suite — see matcher.js
 const { normaliseAcqscRow, normaliseNdisRow, matchEmployee,
@@ -909,8 +910,9 @@ async function loadRegisterInfo() {
   }
 
   // Staleness: warn when either source has not been successfully checked
-  // recently, or the most recent download attempt failed — the signal that
-  // the automatic update has stopped working.
+  // recently, the most recent download attempt failed, or its content has
+  // not changed for weeks — the signals that the automatic update has
+  // stopped working.
   const problems = [];
   for (const [label, entry] of [['Aged Care', acqsc], ['NDIS', ndis]]) {
     if (!entry) { if (meta) problems.push(`${label} has no metadata`); continue; }
@@ -919,6 +921,12 @@ async function loadRegisterInfo() {
     if (age === null) problems.push(`${label} has never been successfully updated`);
     else if (age > STALE_AFTER_DAYS) problems.push(`${label} was last updated ${age} days ago`);
     else if (failed) problems.push(`the last ${label} download failed`);
+    // Both registers gain entries every few days; weeks without a change
+    // suggests the source has moved and the old URL serves a frozen copy.
+    const unchanged = daysAgo(parseDate(entry.changedAt));
+    if (unchanged !== null && unchanged > UNCHANGED_AFTER_DAYS) {
+      problems.push(`${label} content has not changed in ${unchanged} days, which may mean the government source has moved`);
+    }
   }
   if (!meta) {
     const newest = [acqscLM, ndisLM].filter(Boolean).sort((a, b) => b - a)[0];

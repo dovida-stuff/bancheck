@@ -24,7 +24,10 @@ The register line under the form shows each register's entry count and the date 
 last changed, with a download link for each file. The ⓘ tooltip carries the SHA-256 hashes.
 If either source has not been successfully checked for more than 3 days the line turns amber
 with a warning — that is the signal that the automatic update has stopped and needs attention
-(see *What to do if the Action fails*).
+(see *What to do if the Action fails*). It also turns amber if a register's **content** has not
+changed for more than 21 days: both registers normally gain entries every few days, so weeks
+without a change most likely means the agency has moved the file and the old address is
+serving a frozen copy.
 
 ### Verifying a result by hand
 
@@ -87,14 +90,18 @@ AEST, which is why there are two slots. Every run:
    is neither encoding is published with the undecodable bytes dropped and a warning in the
    run log, since a stale register is the bigger risk
 4. Regenerates `register-meta.json` and runs the matcher test suite against the new data
-5. Commits whatever changed. A run that found no new data still commits the metadata, so the
+5. Checks each register's content has changed within the last 21 days
+   (`node scripts/register-meta.mjs --check-changing`). The longest gap seen since May 2026 is
+   12 days, so a register that stays identical for longer is treated as a possibly retired
+   source URL: nothing is held back, but the run is marked failed
+6. Commits whatever changed. A run that found no new data still commits the metadata, so the
    page can show "checked <today>" — and so a gap in the commit history means the workflow
    did not run, not merely that the data was unchanged. If the metadata step finds a published
    file structurally unusable (missing column, broken quoting) the previous CSVs are restored
    before committing, because a register the checker cannot read would report *Not Banned*
    for everyone
 
-If any fetch fails, or the tests fail on the new data, the run is marked **failed** (GitHub
+If any fetch fails, the tests fail on the new data, or a register has stopped changing, the run is marked **failed** (GitHub
 emails the repository owner) but whatever did download successfully is still published.
 Only one run executes at a time (a manual run started during a scheduled one queues behind
 it), and the commit step retries if `main` moved while the run was in progress.
@@ -116,7 +123,11 @@ If the scheduled or manual workflow run fails:
 3. If the failure persists, the source URL may have changed:
    - **ACQSC:** Visit https://www.agedcarequality.gov.au/providers/compliance-enforcement/banning-orders and find the CSV download link
    - **NDIS:** Visit https://www.ndiscommission.gov.au/about-us/compliance-and-enforcement/compliance-actions/search and find the CSV download link
-4. Update the URL in `.github/workflows/update-registers.yml` and re-run the workflow
+4. Update the URL in `.github/workflows/update-registers.yml` (and `source` in
+   `scripts/register-meta.mjs`) and re-run the workflow. If the failure was *Check registers
+   are still changing*, compare the newest entries in the published CSV with the register on
+   the source page: if the page lists newer orders, the download link has moved; if not, the
+   register simply has had no additions and the warning clears with the next one
 5. If a source has changed its column names, update `requiredColumns` in
    `scripts/register-meta.mjs` (the workflow's validation reads the same list), then check
    `matcher.js` still reads the right columns (`normaliseAcqscRow` / `normaliseNdisRow`)

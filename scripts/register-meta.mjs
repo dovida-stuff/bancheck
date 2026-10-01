@@ -21,6 +21,16 @@
 // checks the header has the columns the checker reads, prints the number
 // of data records, and exits 1 if the file is unusable.
 //
+// And, after the metadata is written, to check the sources are still moving:
+//
+//   node scripts/register-meta.mjs --check-changing
+//
+// exits 1 if either register's content has not changed for more than
+// UNCHANGED_AFTER_DAYS. Both registers gain entries every few days (the
+// longest gap since May 2026 was 12 days), so a register that stops changing
+// most likely means the agency now publishes it somewhere else while the old
+// URL keeps serving a frozen copy — a failure every other check would pass.
+//
 // For each register the file records:
 //   rows       data rows in the CSV (header excluded, quoted newlines handled)
 //   bytes      file size
@@ -37,6 +47,9 @@ import { execSync } from 'node:child_process';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const metaPath = join(root, 'register-meta.json');
+
+// Keep in step with UNCHANGED_AFTER_DAYS in index.html (the tests check this).
+const UNCHANGED_AFTER_DAYS = 21;
 
 const REGISTERS = {
   acqsc: {
@@ -58,11 +71,12 @@ const REGISTERS = {
 // Outcome flags: --acqsc=success --ndis=failure (default: success)
 // Verify mode:   --verify=<register> <file>
 const outcomes = {};
-let verifyKey = null, verifyFile = null;
+let verifyKey = null, verifyFile = null, checkChanging = false;
 const argv = process.argv.slice(2);
 for (let i = 0; i < argv.length; i++) {
   const m = /^--(\w+)=(\w+)$/.exec(argv[i]);
-  if (argv[i].startsWith('--verify')) {
+  if (argv[i] === '--check-changing') checkChanging = true;
+  else if (argv[i].startsWith('--verify')) {
     if (!m) { console.error('usage: register-meta.mjs --verify=<acqsc|ndis> <file>'); process.exit(2); }
     verifyKey = m[2]; verifyFile = argv[++i];
   } else if (m) outcomes[m[1]] = m[2];
@@ -119,6 +133,28 @@ if (verifyKey !== null) {
   }
   console.log(rows);
   process.exit(0);
+}
+
+// --check-changing: read the metadata just written and fail if a register's
+// content has been identical for too long.
+if (checkChanging) {
+  let meta;
+  try { meta = JSON.parse(readFileSync(metaPath, 'utf8')); }
+  catch (e) { console.error(`::error::cannot read ${metaPath}: ${e.message}`); process.exit(1); }
+  let frozen = 0;
+  for (const [key, def] of Object.entries(REGISTERS)) {
+    const changed = Date.parse((meta.registers?.[key] || {}).changedAt);
+    if (isNaN(changed)) { console.error(`::error::${def.file}: no changedAt recorded`); frozen++; continue; }
+    const days = Math.floor((Date.now() - changed) / 86400000);
+    if (days > UNCHANGED_AFTER_DAYS) {
+      console.error(`::error::${def.label}: content unchanged for ${days} days (limit ${UNCHANGED_AFTER_DAYS}). ` +
+        `Check ${def.sourcePage} still links to ${def.source}`);
+      frozen++;
+    } else {
+      console.log(`${key}: content last changed ${days} day(s) ago`);
+    }
+  }
+  process.exit(frozen ? 1 : 0);
 }
 
 function gitLastChange(file) {

@@ -79,6 +79,15 @@ jobs:
         continue-on-error: true
         run: node test/match.test.mjs
 
+      # Both registers normally gain entries every few days. If one has not
+      # changed for weeks, the agency has probably moved the file and the old
+      # URL is serving a frozen copy, which every other check would pass.
+      # Nothing is held back; the run is marked failed so it gets looked at.
+      - name: Check registers are still changing
+        id: changing
+        continue-on-error: true
+        run: node scripts/register-meta.mjs --check-changing
+
       # A metadata failure means a CSV is structurally unusable (missing
       # column, broken quoting) — publishing it would make the checker report
       # "Not Banned" for everyone. Keep the last good CSVs in that case and
@@ -114,8 +123,8 @@ jobs:
           exit 1
 
       - name: Fail if any step failed
-        if: always() && (steps.acqsc.outcome != 'success' || steps.ndis.outcome != 'success' || steps.meta.outcome != 'success' || steps.test.outcome != 'success')
+        if: always() && (steps.acqsc.outcome != 'success' || steps.ndis.outcome != 'success' || steps.meta.outcome != 'success' || steps.test.outcome != 'success' || steps.changing.outcome != 'success')
         run: |
-          echo "::error::ACQSC fetch: ${{ steps.acqsc.outcome }} | NDIS fetch: ${{ steps.ndis.outcome }} | metadata: ${{ steps.meta.outcome }} | matcher tests: ${{ steps.test.outcome }}"
+          echo "::error::ACQSC fetch: ${{ steps.acqsc.outcome }} | NDIS fetch: ${{ steps.ndis.outcome }} | metadata: ${{ steps.meta.outcome }} | matcher tests: ${{ steps.test.outcome }} | still changing: ${{ steps.changing.outcome }}"
           echo "::error::One or more steps failed. Check the steps above. The last good register files remain published."
           exit 1

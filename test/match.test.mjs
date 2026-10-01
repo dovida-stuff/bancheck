@@ -357,5 +357,16 @@ if (cspMatch) {
   check('No inline event handlers or style attributes bypass the hashed CSP', !/\son[a-z]+=|\sstyle=/i.test(html));
 }
 
+// ── 14. Page and workflow agree on when an unchanged register is suspect ───
+// index.html warns and scripts/register-meta.mjs --check-changing fails the
+// workflow at the same number of days.
+{
+  const days = src => Number((/const UNCHANGED_AFTER_DAYS = (\d+);/.exec(src) || [])[1]);
+  const pageDays = days(html);
+  const scriptDays = days(readFileSync(join(root, 'scripts', 'register-meta.mjs'), 'utf8'));
+  check('UNCHANGED_AFTER_DAYS is the same in index.html and register-meta.mjs',
+    pageDays > 0 && pageDays === scriptDays, `page ${pageDays}, script ${scriptDays}`);
+}
+
 console.log(`\n${passed} passed, ${failed} failed${skipped ? `, ${skipped} skipped (register rows no longer present)` : ''}`);
 process.exit(failed ? 1 : 0);
