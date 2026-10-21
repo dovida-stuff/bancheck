@@ -6,14 +6,14 @@
       "label": "ACQSC Aged Care Banning Register",
       "source": "https://www.agedcarequality.gov.au/sites/default/files/media/register-banning-orders-data-file.csv",
       "sourcePage": "https://www.agedcarequality.gov.au/providers/compliance-enforcement/banning-orders",
-      "rows": 562,
-      "bytes": 233514,
-      "sha256": "78c8da5055a70bb5063c5e2e1a076e6a157749bf7e46a99fd8ea5138d7102b2b",
-      "changedAt": "2026-10-21T22:50:11.495Z",
-      "checkedAt": "2026-10-21T22:50:11.495Z",
+      "rows": 569,
+      "bytes": 236262,
+      "sha256": "451135d66a217844f607e250361c58b01e587e18f6babc4bad5dac28cc1049c7",
+      "changedAt": "2026-10-21T05:33:45.347Z",
+      "checkedAt": "2026-10-21T05:33:45.347Z",
       "lastFetch": {
         "at": "2026-10-21T22:50:11.495Z",
-        "outcome": "success"
+        "outcome": "failure"
       }
     },
     "ndis": {
