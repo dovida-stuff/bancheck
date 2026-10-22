@@ -80,7 +80,10 @@ AEST, which is why there are two slots. Every run:
    in record count against the current file (so a truncated export can never replace a
    complete one). The parse and column check are done by `node scripts/register-meta.mjs
    --verify=<register> <file>`, the same parser that writes the metadata, so a renamed column
-   is caught before the file is published rather than after. A download that fails validation
+   is caught before the file is published rather than after. A download that is byte-identical
+   to an *older* version of the file in git history is also rejected: on 21 October 2026 the
+   ACQSC site served its 19 October file hours after serving the 21 October one, which would
+   otherwise have silently removed seven new banning orders. A download that fails validation
    is discarded and the last good file stays published
 3. Normalises the file to UTF-8 (the ACQSC source sometimes serves Windows-1252, which
    would otherwise corrupt names like *D'Aguilar* when the browser reads them). A file that
@@ -120,6 +123,9 @@ If the scheduled or manual workflow run fails:
 5. If a source has changed its column names, update `requiredColumns` in
    `scripts/register-meta.mjs` (the workflow's validation reads the same list), then check
    `matcher.js` still reads the right columns (`normaliseAcqscRow` / `normaliseNdisRow`)
+6. If the log says *the source served a stale copy*, the next run usually gets the current
+   file. If it keeps happening, check the source page: should the Commission really have
+   reverted the register to an earlier version, download it and commit it by hand (see below)
 
 If the register files were ever replaced by hand, run `node scripts/register-meta.mjs` and
 commit `register-meta.json` with them — the tests fail if the metadata does not describe the

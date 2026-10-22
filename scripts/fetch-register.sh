@@ -8,8 +8,8 @@
 # Attempt 1 is a direct curl with a browser fingerprint (what has worked every
 # day so far). Attempt 2 is a ScrapingBee proxy fallback, only if the direct
 # fetch failed and a key is set. Every download goes to a temp file and must
-# pass validate() and to_utf8() before it is moved over TARGET, so a failed run
-# can never corrupt the published data.
+# pass validate(), to_utf8() and not_stale() before it is moved over TARGET, so
+# a failed run can never corrupt the published data.
 #
 # validate() checks that the file:
 #   - is non-empty and is not an HTML/JSON error page
@@ -18,6 +18,11 @@
 #     --verify), which also counts real records rather than physical lines
 #   - has at least 5 records and has not shrunk by more than 20% against the
 #     file already published (a truncated export must not replace a full one)
+#
+# not_stale() rejects a download that is byte-identical to an OLDER version of
+# TARGET in git history. On 2026-10-21 the ACQSC site served its 19 October
+# file hours after serving the 21 October one; publishing it silently removed
+# seven new banning orders. Needs the full history (fetch-depth: 0).
 set -euo pipefail
 
 : "${REGISTER:?REGISTER (acqsc|ndis) is required}"
@@ -79,6 +84,23 @@ to_utf8() {
   return 1
 }
 
+# Run after to_utf8(): the published blobs are the converted files. The CSVs
+# are -text in .gitattributes, so the blob hash is the hash of the raw bytes.
+# A download identical to the current file is fine (nothing changed).
+not_stale() {
+  local f=$1 new cur
+  new=$(git hash-object "$f")
+  cur=$(git rev-parse --verify --quiet "HEAD:$TARGET" || true)
+  [ "$new" = "$cur" ] && return 0
+  # Not grep -q: exiting early would SIGPIPE git log, and pipefail would then
+  # report the match as a failure.
+  if git log --format= --raw --no-abbrev -- "$TARGET" | grep " $new " >/dev/null; then
+    echo "validate: download is identical to an older published version of $TARGET (blob ${new:0:7}) — the source served a stale copy"
+    return 1
+  fi
+  return 0
+}
+
 publish() {
   mv "$TMP" "$TARGET"
   trap - EXIT
@@ -105,7 +127,7 @@ CURL_EXIT=$?
 set -e
 echo "Direct: curl=$CURL_EXIT HTTP=$HTTP_CODE bytes=$(wc -c < "$TMP")"
 
-if [ "$CURL_EXIT" = "0" ] && [ "$HTTP_CODE" = "200" ] && validate "$TMP" && to_utf8 "$TMP"; then
+if [ "$CURL_EXIT" = "0" ] && [ "$HTTP_CODE" = "200" ] && validate "$TMP" && to_utf8 "$TMP" && not_stale "$TMP"; then
   publish
   echo "Direct fetch succeeded — ScrapingBee not used"
   exit 0
@@ -137,7 +159,7 @@ CURL_EXIT=$?
 set -e
 echo "ScrapingBee: curl=$CURL_EXIT HTTP=$HTTP_CODE bytes=$(wc -c < "$TMP")"
 
-if [ "$CURL_EXIT" = "0" ] && [ "$HTTP_CODE" = "200" ] && validate "$TMP" && to_utf8 "$TMP"; then
+if [ "$CURL_EXIT" = "0" ] && [ "$HTTP_CODE" = "200" ] && validate "$TMP" && to_utf8 "$TMP" && not_stale "$TMP"; then
   publish
   echo "ScrapingBee succeeded"
   exit 0
