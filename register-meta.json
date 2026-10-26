@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-25T22:07:12.824Z",
+  "generatedAt": "2026-10-26T05:37:13.502Z",
   "registers": {
     "acqsc": {
       "file": "aged-care-register.csv",
@@ -7,12 +7,12 @@
       "source": "https://www.agedcarequality.gov.au/sites/default/files/media/register-banning-orders-data-file.csv",
       "sourcePage": "https://www.agedcarequality.gov.au/providers/compliance-enforcement/banning-orders",
       "rows": 572,
-      "bytes": 237330,
-      "sha256": "6e72496b247199e6e8de6f72700538648bcfa7d37979cc4333dc178211485350",
-      "changedAt": "2026-10-23T05:34:53.897Z",
-      "checkedAt": "2026-10-25T22:07:12.824Z",
+      "bytes": 237658,
+      "sha256": "86dd8125c3740c8052264e5dd5f16bb69eb27bb0a92fb70f500aeb44f6801d1a",
+      "changedAt": "2026-10-26T05:37:13.502Z",
+      "checkedAt": "2026-10-26T05:37:13.502Z",
       "lastFetch": {
-        "at": "2026-10-25T22:07:12.824Z",
+        "at": "2026-10-26T05:37:13.502Z",
         "outcome": "success"
       }
     },
@@ -21,13 +21,13 @@
       "label": "NDIS Commission Compliance Actions (incl. Banning Orders)",
       "source": "https://www.ndiscommission.gov.au/about-us/compliance-and-enforcement/compliance-actions/search/download-csv",
       "sourcePage": "https://www.ndiscommission.gov.au/about-us/compliance-and-enforcement/compliance-actions/search",
-      "rows": 4377,
-      "bytes": 4673487,
-      "sha256": "a39f3caa7a72fc0f4d91464b37a4da0cb8a3898ab1f3cb60770b0c6a8269f1bc",
-      "changedAt": "2026-10-21T05:33:45.347Z",
-      "checkedAt": "2026-10-25T22:07:12.824Z",
+      "rows": 4384,
+      "bytes": 4685207,
+      "sha256": "b0971770916bd66949bb7e82a2eed038ac364a03d11bb94ca2779c515e7c36ea",
+      "changedAt": "2026-10-26T05:37:13.502Z",
+      "checkedAt": "2026-10-26T05:37:13.502Z",
       "lastFetch": {
-        "at": "2026-10-25T22:07:12.824Z",
+        "at": "2026-10-26T05:37:13.502Z",
         "outcome": "success"
       }
     }
