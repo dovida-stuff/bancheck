@@ -1,18 +1,18 @@
 {
-  "generatedAt": "2026-11-05T00:33:49.015Z",
+  "generatedAt": "2026-11-05T07:35:30.045Z",
   "registers": {
     "acqsc": {
       "file": "aged-care-register.csv",
       "label": "ACQSC Aged Care Banning Register",
       "source": "https://www.agedcarequality.gov.au/sites/default/files/media/register-banning-orders-data-file.csv",
       "sourcePage": "https://www.agedcarequality.gov.au/providers/compliance-enforcement/banning-orders",
-      "rows": 579,
-      "bytes": 240564,
-      "sha256": "c6a585eabb1138783f9fcf1855edb398eaaa04daa0dfc360ff1698285e170951",
-      "changedAt": "2026-11-05T00:33:49.015Z",
-      "checkedAt": "2026-11-05T00:33:49.015Z",
+      "rows": 590,
+      "bytes": 244419,
+      "sha256": "f58808427e71302084476f02c57bd2e44d2297a4321af5738827b5079b775538",
+      "changedAt": "2026-11-05T07:35:30.045Z",
+      "checkedAt": "2026-11-05T07:35:30.045Z",
       "lastFetch": {
-        "at": "2026-11-05T00:33:49.015Z",
+        "at": "2026-11-05T07:35:30.045Z",
         "outcome": "success"
       }
     },
@@ -25,9 +25,9 @@
       "bytes": 4994728,
       "sha256": "83c221510ecaa9525b8b03afbfa6f8b737f3eca86c3201163b6123e86e5c1548",
       "changedAt": "2026-11-05T00:33:49.015Z",
-      "checkedAt": "2026-11-05T00:33:49.015Z",
+      "checkedAt": "2026-11-05T07:35:30.045Z",
       "lastFetch": {
-        "at": "2026-11-05T00:33:49.015Z",
+        "at": "2026-11-05T07:35:30.045Z",
         "outcome": "success"
       }
     }
