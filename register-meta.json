@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-18T08:05:15.781Z",
+  "generatedAt": "2026-11-19T01:32:22.235Z",
   "registers": {
     "acqsc": {
       "file": "aged-care-register.csv",
@@ -10,9 +10,9 @@
       "bytes": 249820,
       "sha256": "c3c9896949e83ad2ca510766ddd6b4b4c3c6c0bdb50896d86d279b0f2594897d",
       "changedAt": "2026-11-16T07:28:58.274Z",
-      "checkedAt": "2026-11-18T08:05:15.781Z",
+      "checkedAt": "2026-11-19T01:32:22.235Z",
       "lastFetch": {
-        "at": "2026-11-18T08:05:15.781Z",
+        "at": "2026-11-19T01:32:22.235Z",
         "outcome": "success"
       }
     },
@@ -21,13 +21,13 @@
       "label": "NDIS Commission Compliance Actions (incl. Banning Orders)",
       "source": "https://www.ndiscommission.gov.au/about-us/compliance-and-enforcement/compliance-actions/search/download-csv",
       "sourcePage": "https://www.ndiscommission.gov.au/about-us/compliance-and-enforcement/compliance-actions/search",
-      "rows": 5307,
-      "bytes": 5645032,
-      "sha256": "84c71f1ca01b5408c5226e74104623c36db4099bae8bf79a61ae2406830fa9a7",
-      "changedAt": "2026-11-18T08:05:15.781Z",
-      "checkedAt": "2026-11-18T08:05:15.781Z",
+      "rows": 5339,
+      "bytes": 5689608,
+      "sha256": "77d8d6f97fe744c841531e5ba236cb9bc8b76136f5e212b6fd5f77468f940681",
+      "changedAt": "2026-11-19T01:32:22.235Z",
+      "checkedAt": "2026-11-19T01:32:22.235Z",
       "lastFetch": {
-        "at": "2026-11-18T08:05:15.781Z",
+        "at": "2026-11-19T01:32:22.235Z",
         "outcome": "success"
       }
     }
