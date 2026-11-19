@@ -1,18 +1,18 @@
 {
-  "generatedAt": "2026-11-19T15:38:18.298Z",
+  "generatedAt": "2026-11-19T23:34:32.322Z",
   "registers": {
     "acqsc": {
       "file": "aged-care-register.csv",
       "label": "ACQSC Aged Care Banning Register",
       "source": "https://www.agedcarequality.gov.au/sites/default/files/media/register-banning-orders-data-file.csv",
       "sourcePage": "https://www.agedcarequality.gov.au/providers/compliance-enforcement/banning-orders",
-      "rows": 603,
-      "bytes": 249820,
-      "sha256": "c3c9896949e83ad2ca510766ddd6b4b4c3c6c0bdb50896d86d279b0f2594897d",
-      "changedAt": "2026-11-16T07:28:58.274Z",
-      "checkedAt": "2026-11-19T15:38:18.298Z",
+      "rows": 618,
+      "bytes": 255213,
+      "sha256": "72ef9214cdcc8ef251f736e6ec41cc6e8182613d986acf0bbeec83f2d8dbb7b3",
+      "changedAt": "2026-11-19T23:34:32.322Z",
+      "checkedAt": "2026-11-19T23:34:32.322Z",
       "lastFetch": {
-        "at": "2026-11-19T15:38:18.298Z",
+        "at": "2026-11-19T23:34:32.322Z",
         "outcome": "success"
       }
     },
@@ -21,14 +21,14 @@
       "label": "NDIS Commission Compliance Actions (incl. Banning Orders)",
       "source": "https://www.ndiscommission.gov.au/about-us/compliance-and-enforcement/compliance-actions/search/download-csv",
       "sourcePage": "https://www.ndiscommission.gov.au/about-us/compliance-and-enforcement/compliance-actions/search",
-      "rows": 5339,
-      "bytes": 5689608,
-      "sha256": "77d8d6f97fe744c841531e5ba236cb9bc8b76136f5e212b6fd5f77468f940681",
-      "changedAt": "2026-11-19T01:32:22.235Z",
-      "checkedAt": "2026-11-19T01:32:22.235Z",
+      "rows": 5349,
+      "bytes": 5704176,
+      "sha256": "2fe9fbdbece3f4acfec06c49611d9718f337afdd01012d92120bc81200bd8301",
+      "changedAt": "2026-11-19T23:34:32.322Z",
+      "checkedAt": "2026-11-19T23:34:32.322Z",
       "lastFetch": {
-        "at": "2026-11-19T15:38:18.298Z",
-        "outcome": "failure"
+        "at": "2026-11-19T23:34:32.322Z",
+        "outcome": "success"
       }
     }
   }
