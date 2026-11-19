@@ -5,9 +5,9 @@
 #   REGISTER=ndis URL=... REFERER=... TARGET=ndis-register.csv \
 #     SCRAPINGBEE_API_KEY=... scripts/fetch-register.sh
 #
-# Attempt 1 is a direct curl with a browser fingerprint (what has worked every
-# day so far). Attempt 2 is a ScrapingBee proxy fallback, only if the direct
-# fetch failed and a key is set. Every download goes to a temp file and must
+# Attempt 1 is a direct curl with a browser fingerprint, retried with backoff.
+# Attempts 2 and 3 are ScrapingBee fallbacks through Australian exit IPs
+# (premium, then stealth), only if the direct fetch failed and a key is set. Every download goes to a temp file and must
 # pass validate(), to_utf8() and not_stale() before it is moved over TARGET, so
 # a failed run can never corrupt the published data.
 #
@@ -108,30 +108,50 @@ publish() {
 }
 
 # --- Attempt 1: direct fetch with realistic browser fingerprint ---
-echo "=== Attempt 1: direct fetch (Chrome browser fingerprint) ==="
-set +e
-HTTP_CODE=$(curl -sS -L --max-time 60 --compressed -w "%{http_code}" \
-  -o "$TMP" \
-  -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36" \
-  -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8" \
-  -H "Accept-Language: en-AU,en-US;q=0.9,en;q=0.8" \
-  -H "Accept-Encoding: gzip, deflate, br" \
-  -H "Referer: ${REFERER}" \
-  -H "Sec-Fetch-Dest: document" \
-  -H "Sec-Fetch-Mode: navigate" \
-  -H "Sec-Fetch-Site: same-origin" \
-  -H "Sec-Fetch-User: ?1" \
-  -H "Upgrade-Insecure-Requests: 1" \
-  "$URL")
-CURL_EXIT=$?
-set -e
-echo "Direct: curl=$CURL_EXIT HTTP=$HTTP_CODE bytes=$(wc -c < "$TMP")"
+# Retried with backoff: the NDIS site intermittently answers the GitHub runner
+# with 503 while serving browsers normally (2026-11-19), and a short wait is
+# often enough to get through without spending ScrapingBee credits.
+direct_fetch() {
+  curl -sS -L --max-time 60 --compressed -w "%{http_code}" \
+    -o "$TMP" \
+    -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36" \
+    -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8" \
+    -H "Accept-Language: en-AU,en-US;q=0.9,en;q=0.8" \
+    -H "Accept-Encoding: gzip, deflate, br" \
+    -H "Referer: ${REFERER}" \
+    -H "Sec-Fetch-Dest: document" \
+    -H "Sec-Fetch-Mode: navigate" \
+    -H "Sec-Fetch-Site: same-origin" \
+    -H "Sec-Fetch-User: ?1" \
+    -H "Upgrade-Insecure-Requests: 1" \
+    "$URL"
+}
 
-if [ "$CURL_EXIT" = "0" ] && [ "$HTTP_CODE" = "200" ] && validate "$TMP" && to_utf8 "$TMP" && not_stale "$TMP"; then
-  publish
-  echo "Direct fetch succeeded — ScrapingBee not used"
-  exit 0
-fi
+DIRECT_TRIES=${DIRECT_TRIES:-3}
+for try in $(seq 1 "$DIRECT_TRIES"); do
+  echo "=== Attempt 1.$try: direct fetch (Chrome browser fingerprint) ==="
+  set +e
+  HTTP_CODE=$(direct_fetch)
+  CURL_EXIT=$?
+  set -e
+  echo "Direct: curl=$CURL_EXIT HTTP=$HTTP_CODE bytes=$(wc -c < "$TMP")"
+
+  if [ "$CURL_EXIT" = "0" ] && [ "$HTTP_CODE" = "200" ] && validate "$TMP" && to_utf8 "$TMP" && not_stale "$TMP"; then
+    publish
+    echo "Direct fetch succeeded — ScrapingBee not used"
+    exit 0
+  fi
+  # Show what the site sent back (a block page names the WAF/CDN), so a
+  # failure can be diagnosed from the log alone.
+  echo "--- Direct response preview ---"
+  head -c 600 "$TMP" | tr -d '\000' || true
+  echo
+  if [ "$try" -lt "$DIRECT_TRIES" ]; then
+    wait_s=$(( try * 30 ))
+    echo "Waiting ${wait_s}s before retrying the direct fetch"
+    sleep "$wait_s"
+  fi
+done
 echo "Direct fetch did not produce a valid CSV"
 
 if [ -z "$KEY" ]; then
@@ -142,31 +162,47 @@ if [ -z "$KEY" ]; then
   exit 1
 fi
 
-# --- Attempt 2: ScrapingBee ---
+# --- Attempts 2 and 3: ScrapingBee ---
 # The key is a query parameter (ScrapingBee offers no header form), so it is
 # handed to curl through a config file on stdin rather than on the command
 # line, where it would be visible to every process on the runner.
-echo "=== Attempt 2: ScrapingBee (premium_proxy, no JS) ==="
-set +e
-HTTP_CODE=$(printf 'data-urlencode = "api_key=%s"\n' "$KEY" | curl -sS -L --max-time 180 -w "%{http_code}" \
-  -o "$TMP" \
-  -G "https://app.scrapingbee.com/api/v1/" \
-  -K - \
-  --data-urlencode "url=${URL}" \
-  --data-urlencode "render_js=false" \
-  --data-urlencode "premium_proxy=true")
-CURL_EXIT=$?
-set -e
-echo "ScrapingBee: curl=$CURL_EXIT HTTP=$HTTP_CODE bytes=$(wc -c < "$TMP")"
+# country_code=au: the government sites accept Australian residential traffic
+# (the download works from a phone in Australia) but have rejected ScrapingBee's
+# default, non-Australian exit IPs ("Server responded with 613").
+scrapingbee() {
+  printf 'data-urlencode = "api_key=%s"\n' "$KEY" | curl -sS -L --max-time 180 -w "%{http_code}" \
+    -o "$TMP" \
+    -G "https://app.scrapingbee.com/api/v1/" \
+    -K - \
+    --data-urlencode "url=${URL}" \
+    --data-urlencode "country_code=au" \
+    "$@"
+}
 
-if [ "$CURL_EXIT" = "0" ] && [ "$HTTP_CODE" = "200" ] && validate "$TMP" && to_utf8 "$TMP" && not_stale "$TMP"; then
-  publish
-  echo "ScrapingBee succeeded"
-  exit 0
-fi
+try_scrapingbee() {
+  local label=$1; shift
+  echo "=== $label ==="
+  set +e
+  HTTP_CODE=$(scrapingbee "$@")
+  CURL_EXIT=$?
+  set -e
+  echo "ScrapingBee: curl=$CURL_EXIT HTTP=$HTTP_CODE bytes=$(wc -c < "$TMP")"
+  if [ "$CURL_EXIT" = "0" ] && [ "$HTTP_CODE" = "200" ] && validate "$TMP" && to_utf8 "$TMP" && not_stale "$TMP"; then
+    publish
+    echo "ScrapingBee succeeded ($label)"
+    exit 0
+  fi
+  echo "--- ScrapingBee response preview ---"
+  head -c 600 "$TMP" | tr -d '\000' || true
+  echo
+}
 
-echo "::error::Both direct fetch and ScrapingBee failed for $REGISTER"
-echo "--- Final response preview ---"
-head -c 1500 "$TMP" || true
-echo
+try_scrapingbee "Attempt 2: ScrapingBee (premium_proxy, AU, no JS)" \
+  --data-urlencode "render_js=false" --data-urlencode "premium_proxy=true"
+# Stealth proxies are ScrapingBee's tier for sites with bot protection; they
+# require JS rendering. Costs more credits, so it only runs if attempt 2 fails.
+try_scrapingbee "Attempt 3: ScrapingBee (stealth_proxy, AU)" \
+  --data-urlencode "render_js=true" --data-urlencode "stealth_proxy=true"
+
+echo "::error::Direct fetch and all ScrapingBee attempts failed for $REGISTER"
 exit 1
